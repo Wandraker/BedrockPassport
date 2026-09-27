@@ -7,7 +7,21 @@ public record GateMessages(
         String inputPlaceholder,
         String invalidName,
         String nameTaken,
+        String limitReached,
         String internalError,
-        String timeout
+        String timeout,
+        String selectorTitle,
+        String selectorText,
+        String lastUsedSuffix,
+        String addAccount,
+        String manageAccounts,
+        String manageTitle,
+        String manageText,
+        String removePrefix,
+        String back,
+        String removeConfirmTitle,
+        String removeConfirmText,
+        String removeConfirmButton,
+        String cancelButton
 ) {
 }

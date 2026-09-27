@@ -4,7 +4,8 @@ public record ClaimResult(Status status, Identity identity) {
     public enum Status {
         CLAIMED,
         EXISTING,
-        NAME_TAKEN
+        NAME_TAKEN,
+        LIMIT_REACHED
     }
 
     public boolean accepted() {

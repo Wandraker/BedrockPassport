@@ -1,16 +1,33 @@
 identity:
   inactivity-timeout-seconds: 60
+  max-accounts-per-xuid: 3
   min-name-length: 3
   max-name-length: 16
   name-pattern: '^[A-Za-z0-9_]+$'
 form:
   title: 'BedrockPassport'
-  text: 'Choose the Java username you want to use on this server. This choice is linked to your Bedrock/Xbox account.'
+  text: 'Choose the Java username you want to use on this server. Server authentication will still handle login or registration after you connect.'
   input-label: 'Java username'
   input-placeholder: 'Example: Onelsey'
   invalid-name: 'Use 3-16 characters: A-Z, a-z, 0-9 and _.'
-  name-taken: 'That username is already assigned to another Bedrock account.'
-  internal-error: 'BedrockPassport could not save your username. Please reconnect.'
-  timeout: 'BedrockPassport nickname selection timed out. Reconnect and try again.'
+  name-taken: 'That username is already assigned to another Bedrock Passport.'
+  limit-reached: 'Your Bedrock Passport has reached its account limit.'
+  internal-error: 'BedrockPassport could not save your account. Please reconnect.'
+  timeout: 'BedrockPassport selection timed out. Reconnect and try again.'
+selector:
+  title: 'BedrockPassport'
+  text: 'Choose the server account you want to use.'
+  last-used-suffix: '  (last used)'
+  add-account: '+ Add account'
+  manage-accounts: 'Manage accounts'
+manage:
+  title: 'BedrockPassport accounts'
+  text: 'Removing an account only removes it from this Bedrock Passport. Server data and authentication records are not deleted.'
+  remove-prefix: 'Remove: '
+  back: 'Back'
+  confirm-title: 'Remove account'
+  confirm-text: 'Remove %account% from this Bedrock Passport? Server data and passwords are not deleted.'
+  confirm-button: 'Remove from Passport'
+  cancel-button: 'Cancel'
 compatibility:
   holding-world-init-timeout-seconds: 10

@@ -3,6 +3,7 @@ package dev.onelsey.bedrockpassport;
 import dev.onelsey.bedrockpassport.data.IdentityRepository;
 import dev.onelsey.bedrockpassport.gate.GateMessages;
 import dev.onelsey.bedrockpassport.gate.IdentityGate;
+import dev.onelsey.bedrockpassport.identity.JavaUuidResolver;
 import dev.onelsey.bedrockpassport.integration.FloodgateIdentityBridge;
 import dev.onelsey.bedrockpassport.integration.GeyserPendingSessionBridge;
 import dev.onelsey.bedrockpassport.name.NamePolicy;
@@ -33,6 +34,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     getConfig().getInt("identity.max-name-length", 16),
                     getConfig().getString("identity.name-pattern", "^[A-Za-z0-9_]+$")
             );
+            JavaUuidResolver uuidResolver = new JavaUuidResolver(getServer());
             GateMessages messages = new GateMessages(
                     getConfig().getString("form.title", "BedrockPassport"),
                     getConfig().getString("form.text", "Choose the Java username you want to use on this server."),
@@ -40,21 +42,38 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     getConfig().getString("form.input-placeholder", "Example: Onelsey"),
                     getConfig().getString("form.invalid-name", "Use 3-16 characters: A-Z, a-z, 0-9 and _."),
                     getConfig().getString("form.name-taken", "That username is already assigned to another Bedrock account."),
-                    getConfig().getString("form.internal-error", "BedrockPassport could not save your username. Please reconnect."),
-                    getConfig().getString("form.timeout", "BedrockPassport nickname selection timed out. Reconnect and try again.")
+                    getConfig().getString("form.limit-reached", "Your Bedrock Passport has reached its account limit."),
+                    getConfig().getString("form.internal-error", "BedrockPassport could not save your account. Please reconnect."),
+                    getConfig().getString("form.timeout", "BedrockPassport selection timed out. Reconnect and try again."),
+                    getConfig().getString("selector.title", "BedrockPassport"),
+                    getConfig().getString("selector.text", "Choose the server account you want to use."),
+                    getConfig().getString("selector.last-used-suffix", "  (last used)"),
+                    getConfig().getString("selector.add-account", "+ Add account"),
+                    getConfig().getString("selector.manage-accounts", "Manage accounts"),
+                    getConfig().getString("manage.title", "BedrockPassport accounts"),
+                    getConfig().getString("manage.text", "Removing an account only removes it from this Bedrock Passport. Server data and authentication records are not deleted."),
+                    getConfig().getString("manage.remove-prefix", "Remove: "),
+                    getConfig().getString("manage.back", "Back"),
+                    getConfig().getString("manage.confirm-title", "Remove account"),
+                    getConfig().getString("manage.confirm-text", "Remove %account% from this Bedrock Passport? Server data and passwords are not deleted."),
+                    getConfig().getString("manage.confirm-button", "Remove from Passport"),
+                    getConfig().getString("manage.cancel-button", "Cancel")
             );
             gate = new IdentityGate(
                     repository,
                     geyserBridge,
                     namePolicy,
+                    uuidResolver,
                     messages,
+                    getConfig().getInt("identity.max-accounts-per-xuid", 3),
                     getConfig().getLong("identity.inactivity-timeout-seconds", 60L),
                     getConfig().getLong("compatibility.holding-world-init-timeout-seconds", 10L)
             );
-            floodgateBridge = new FloodgateIdentityBridge(repository, gate, messages, getLogger());
+            floodgateBridge = new FloodgateIdentityBridge(gate, messages, getLogger());
             floodgateBridge.register();
 
             getLogger().info("BedrockPassport enabled. Geyser pending-session bridge capability check passed.");
+            getLogger().info("BedrockPassport account UUID mode: " + uuidResolver.mode() + ".");
             getLogger().info("BedrockPassport handles identity only. Password/login/register remains the responsibility of the server authentication plugin.");
         } catch (Throwable exception) {
             failEnable("BedrockPassport could not initialize its Geyser/Floodgate identity bridge.", exception);

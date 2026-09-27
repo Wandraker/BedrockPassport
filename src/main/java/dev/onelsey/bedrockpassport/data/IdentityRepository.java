@@ -7,6 +7,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -33,65 +35,250 @@ public final class IdentityRepository implements AutoCloseable {
             statement.execute("PRAGMA journal_mode=WAL");
             statement.execute("PRAGMA foreign_keys=ON");
             statement.execute("PRAGMA busy_timeout=5000");
-            statement.execute("CREATE TABLE IF NOT EXISTS identities(xuid TEXT PRIMARY KEY, game_name TEXT NOT NULL COLLATE NOCASE UNIQUE, floodgate_uuid TEXT NOT NULL, created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL)");
-            statement.execute("CREATE INDEX IF NOT EXISTS identities_game_name_idx ON identities(game_name COLLATE NOCASE)");
+        }
+
+        if (!tableExists("identities")) {
+            createCurrentSchema();
+            return;
+        }
+
+        List<String> columns = tableColumns("identities");
+        if (columns.contains("id") && columns.contains("java_uuid") && columns.contains("uuid_mode")) {
+            createIndexes();
+            return;
+        }
+
+        if (columns.contains("xuid") && columns.contains("game_name") && columns.contains("floodgate_uuid")) {
+            migrateLegacySingleIdentitySchema();
+            return;
+        }
+
+        throw new SQLException("Unsupported BedrockPassport identities table schema");
+    }
+
+    private boolean tableExists(String table) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")) {
+            statement.setString(1, table);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next();
+            }
         }
     }
 
-    public CompletableFuture<Optional<Identity>> findByXuid(String xuid) {
-        return submit(() -> findByXuidNow(xuid, true));
+    private List<String> tableColumns(String table) throws SQLException {
+        List<String> columns = new ArrayList<>();
+        try (Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery("PRAGMA table_info(" + table + ")")) {
+            while (result.next()) {
+                columns.add(result.getString("name"));
+            }
+        }
+        return columns;
     }
 
-    public CompletableFuture<ClaimResult> claim(String xuid, UUID floodgateUuid, String gameName) {
-        return submit(() -> claimNow(xuid, floodgateUuid, gameName));
+    private void migrateLegacySingleIdentitySchema() throws SQLException {
+        boolean previousAutoCommit = connection.getAutoCommit();
+        connection.setAutoCommit(false);
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("DROP INDEX IF EXISTS identities_game_name_idx");
+            statement.execute("ALTER TABLE identities RENAME TO identities_legacy_v1");
+            createCurrentSchema(statement);
+            statement.execute("INSERT INTO identities(xuid, game_name, java_uuid, uuid_mode, created_at, last_used) " +
+                    "SELECT xuid, game_name, NULL, NULL, created_at, last_seen FROM identities_legacy_v1");
+            statement.execute("DROP TABLE identities_legacy_v1");
+            connection.commit();
+        } catch (SQLException exception) {
+            connection.rollback();
+            throw exception;
+        } finally {
+            connection.setAutoCommit(previousAutoCommit);
+        }
     }
 
-    private Optional<Identity> findByXuidNow(String xuid, boolean touch) throws SQLException {
-        Identity identity;
-        try (PreparedStatement statement = connection.prepareStatement("SELECT xuid, game_name, floodgate_uuid FROM identities WHERE xuid=?")) {
+    private void createCurrentSchema() throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            createCurrentSchema(statement);
+        }
+    }
+
+    private void createCurrentSchema(Statement statement) throws SQLException {
+        statement.execute("CREATE TABLE IF NOT EXISTS identities(" +
+                "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                "xuid TEXT NOT NULL," +
+                "game_name TEXT NOT NULL COLLATE NOCASE UNIQUE," +
+                "java_uuid TEXT," +
+                "uuid_mode TEXT," +
+                "created_at INTEGER NOT NULL," +
+                "last_used INTEGER NOT NULL" +
+                ")");
+        createIndexes(statement);
+    }
+
+    private void createIndexes() throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            createIndexes(statement);
+        }
+    }
+
+    private void createIndexes(Statement statement) throws SQLException {
+        statement.execute("CREATE INDEX IF NOT EXISTS identities_xuid_last_used_idx ON identities(xuid, last_used DESC, id ASC)");
+        statement.execute("CREATE INDEX IF NOT EXISTS identities_game_name_idx ON identities(game_name COLLATE NOCASE)");
+    }
+
+    public CompletableFuture<List<Identity>> listByXuid(String xuid) {
+        return submit(() -> listByXuidNow(xuid));
+    }
+
+    public CompletableFuture<ClaimResult> claim(String xuid, String gameName, UUID javaUuid, String uuidMode, int maxAccounts) {
+        return submit(() -> claimNow(xuid, gameName, javaUuid, uuidMode, maxAccounts));
+    }
+
+    public CompletableFuture<Identity> updateJavaIdentity(long identityId, String xuid, UUID javaUuid, String uuidMode) {
+        return submit(() -> updateJavaIdentityNow(identityId, xuid, javaUuid, uuidMode));
+    }
+
+    public CompletableFuture<Identity> markUsed(long identityId, String xuid) {
+        return submit(() -> markUsedNow(identityId, xuid));
+    }
+
+    public CompletableFuture<Boolean> remove(long identityId, String xuid) {
+        return submit(() -> removeNow(identityId, xuid));
+    }
+
+    private List<Identity> listByXuidNow(String xuid) throws SQLException {
+        List<Identity> identities = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT id, xuid, game_name, java_uuid, uuid_mode, created_at, last_used FROM identities WHERE xuid=? ORDER BY last_used DESC, id ASC")) {
             statement.setString(1, xuid);
             try (ResultSet result = statement.executeQuery()) {
-                if (!result.next()) {
-                    return Optional.empty();
+                while (result.next()) {
+                    identities.add(readIdentity(result));
                 }
-                identity = new Identity(result.getString(1), result.getString(2), UUID.fromString(result.getString(3)));
             }
         }
-        if (touch) {
-            try (PreparedStatement update = connection.prepareStatement("UPDATE identities SET last_seen=? WHERE xuid=?")) {
-                update.setLong(1, System.currentTimeMillis());
-                update.setString(2, xuid);
-                update.executeUpdate();
-            }
-        }
-        return Optional.of(identity);
+        return identities;
     }
 
-    private ClaimResult claimNow(String xuid, UUID floodgateUuid, String gameName) throws SQLException {
-        Optional<Identity> existing = findByXuidNow(xuid, false);
+    private Optional<Identity> findByXuidAndNameNow(String xuid, String gameName) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT id, xuid, game_name, java_uuid, uuid_mode, created_at, last_used FROM identities WHERE xuid=? AND game_name=? COLLATE NOCASE")) {
+            statement.setString(1, xuid);
+            statement.setString(2, gameName);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? Optional.of(readIdentity(result)) : Optional.empty();
+            }
+        }
+    }
+
+    private ClaimResult claimNow(String xuid, String gameName, UUID javaUuid, String uuidMode, int maxAccounts) throws SQLException {
+        Optional<Identity> existing = findByXuidAndNameNow(xuid, gameName);
         if (existing.isPresent()) {
-            return new ClaimResult(ClaimResult.Status.EXISTING, existing.get());
+            Identity identity = existing.get();
+            if (identity.javaUuid() == null || identity.uuidMode() == null || !uuidMode.equals(identity.uuidMode())) {
+                identity = updateJavaIdentityNow(identity.id(), xuid, javaUuid, uuidMode);
+            }
+            return new ClaimResult(ClaimResult.Status.EXISTING, identity);
+        }
+
+        if (maxAccounts > 0 && countByXuidNow(xuid) >= maxAccounts) {
+            return new ClaimResult(ClaimResult.Status.LIMIT_REACHED, null);
         }
 
         long now = System.currentTimeMillis();
-        try (PreparedStatement statement = connection.prepareStatement("INSERT INTO identities(xuid, game_name, floodgate_uuid, created_at, last_seen) VALUES(?,?,?,?,?)")) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO identities(xuid, game_name, java_uuid, uuid_mode, created_at, last_used) VALUES(?,?,?,?,?,?)",
+                Statement.RETURN_GENERATED_KEYS)) {
             statement.setString(1, xuid);
             statement.setString(2, gameName);
-            statement.setString(3, floodgateUuid.toString());
-            statement.setLong(4, now);
+            statement.setString(3, javaUuid.toString());
+            statement.setString(4, uuidMode);
             statement.setLong(5, now);
+            statement.setLong(6, now);
             statement.executeUpdate();
-            return new ClaimResult(ClaimResult.Status.CLAIMED, new Identity(xuid, gameName, floodgateUuid));
+            try (ResultSet keys = statement.getGeneratedKeys()) {
+                if (!keys.next()) {
+                    throw new SQLException("SQLite did not return the new identity id");
+                }
+                return new ClaimResult(ClaimResult.Status.CLAIMED,
+                        new Identity(keys.getLong(1), xuid, gameName, javaUuid, uuidMode, now, now));
+            }
         } catch (SQLException exception) {
             if (!isConstraintViolation(exception)) {
                 throw exception;
             }
-            existing = findByXuidNow(xuid, false);
+            existing = findByXuidAndNameNow(xuid, gameName);
             if (existing.isPresent()) {
                 return new ClaimResult(ClaimResult.Status.EXISTING, existing.get());
             }
             return new ClaimResult(ClaimResult.Status.NAME_TAKEN, null);
         }
+    }
+
+    private int countByXuidNow(String xuid) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT COUNT(*) FROM identities WHERE xuid=?")) {
+            statement.setString(1, xuid);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? result.getInt(1) : 0;
+            }
+        }
+    }
+
+    private Identity updateJavaIdentityNow(long identityId, String xuid, UUID javaUuid, String uuidMode) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE identities SET java_uuid=?, uuid_mode=? WHERE id=? AND xuid=?")) {
+            statement.setString(1, javaUuid.toString());
+            statement.setString(2, uuidMode);
+            statement.setLong(3, identityId);
+            statement.setString(4, xuid);
+            if (statement.executeUpdate() != 1) {
+                throw new SQLException("Identity no longer exists");
+            }
+        }
+        return findByIdNow(identityId, xuid).orElseThrow(() -> new SQLException("Identity disappeared after update"));
+    }
+
+    private Identity markUsedNow(long identityId, String xuid) throws SQLException {
+        long now = System.currentTimeMillis();
+        try (PreparedStatement statement = connection.prepareStatement("UPDATE identities SET last_used=? WHERE id=? AND xuid=?")) {
+            statement.setLong(1, now);
+            statement.setLong(2, identityId);
+            statement.setString(3, xuid);
+            if (statement.executeUpdate() != 1) {
+                throw new SQLException("Identity no longer exists");
+            }
+        }
+        return findByIdNow(identityId, xuid).orElseThrow(() -> new SQLException("Identity disappeared after last-used update"));
+    }
+
+    private boolean removeNow(long identityId, String xuid) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM identities WHERE id=? AND xuid=?")) {
+            statement.setLong(1, identityId);
+            statement.setString(2, xuid);
+            return statement.executeUpdate() == 1;
+        }
+    }
+
+    private Optional<Identity> findByIdNow(long identityId, String xuid) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT id, xuid, game_name, java_uuid, uuid_mode, created_at, last_used FROM identities WHERE id=? AND xuid=?")) {
+            statement.setLong(1, identityId);
+            statement.setString(2, xuid);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? Optional.of(readIdentity(result)) : Optional.empty();
+            }
+        }
+    }
+
+    private static Identity readIdentity(ResultSet result) throws SQLException {
+        String javaUuid = result.getString("java_uuid");
+        return new Identity(
+                result.getLong("id"),
+                result.getString("xuid"),
+                result.getString("game_name"),
+                javaUuid == null ? null : UUID.fromString(javaUuid),
+                result.getString("uuid_mode"),
+                result.getLong("created_at"),
+                result.getLong("last_used")
+        );
     }
 
     private static boolean isConstraintViolation(SQLException exception) {

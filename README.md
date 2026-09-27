@@ -1,79 +1,139 @@
 # BedrockPassport
 
-BedrockPassport gives Bedrock players a persistent Java username when they join a Java server through Geyser and Floodgate.
+BedrockPassport gives Bedrock players persistent Java-side identities when they join a Java server through Geyser and Floodgate.
 
-A Bedrock player chooses a Java-compatible username on the first connection. BedrockPassport binds that username to the player's Xbox XUID and reuses it automatically on later connections. The Java server receives the selected username as the player's real login identity rather than as a chat, display-name, or TAB-only nickname.
+A Bedrock/Xbox account can keep several server accounts in one passport. On every Bedrock connection, the player is held in Geyser's pre-backend world and gets a small account selector before the Java server login begins. The last-used account is shown first, so a normal reconnect takes one tap. Players can also add another account or remove an old binding from the passport.
 
-BedrockPassport does not implement passwords, `/login`, `/register`, or account authentication. If your server uses an authentication plugin, that plugin continues handling existing and new accounts after BedrockPassport resolves the username.
+The selected username and UUID are supplied to Floodgate before the backend player is created. Paper, Purpur, Leaf, authentication plugins, permissions plugins, logging plugins, player data, statistics, and other server systems therefore see the selected Java identity from the start of the session rather than a cosmetic display name.
 
-## Current requirements
+BedrockPassport does not implement passwords, `/login`, `/register`, or account authentication. Existing authentication plugins continue handling existing and new accounts after BedrockPassport selects the identity.
+
+## Requirements
 
 - Paper, Purpur, or Leaf
 - Minecraft 26.2
 - Java 25 or newer
 - Geyser-Spigot on the same server
 - Floodgate on the same server
+- `online-mode=false`
 
-The current development baseline is Geyser 2.11.3-SNAPSHOT b1247 and Floodgate 2.2.5-SNAPSHOT b141. BedrockPassport performs a capability check when it starts and disables itself if the required Geyser pending-session bridge is unavailable.
+The current development baseline is Geyser 2.11.3-SNAPSHOT b1247 and Floodgate 2.2.5-SNAPSHOT b141. BedrockPassport checks the Geyser pending-session bridge when it starts and disables itself if the required integration points are unavailable.
 
-## How it works
+## Account flow
 
-On the first Bedrock connection, Geyser keeps the client in its temporary holding world while BedrockPassport displays a username form. The player is not created as a Bukkit/Paper player under the temporary Xbox/Floodgate name.
+First connection:
 
-After a valid username is selected, BedrockPassport stores the XUID-to-username mapping and supplies that identity to Floodgate during the login handshake. Floodgate then continues its normal login process and the server receives the selected username from the beginning of the player session.
+```text
+Bedrock/Xbox XUID
+        ↓
+Geyser holding world
+        ↓
+Choose a Java username
+        ↓
+XUID ↔ server account
+        ↓
+Floodgate backend login
+        ↓
+Your normal authentication plugin
+```
 
-On later connections, the stored identity is resolved immediately and no username form is shown.
+Returning connection:
+
+```text
+Bedrock/Xbox XUID
+        ↓
+Geyser holding world
+        ↓
+[ Onelsey (last used) ]
+[ AnotherAccount       ]
+[ + Add account        ]
+[ Manage accounts      ]
+        ↓
+selected real Java identity
+        ↓
+Floodgate backend login
+```
+
+Removing an account in BedrockPassport only removes the XUID-to-account binding. It does not delete passwords, authentication records, player data, inventory, statistics, permissions, logs, or any other server-side data.
+
+## UUID behavior
+
+BedrockPassport treats the selected server account as the identity and the Xbox XUID as the passport that can access it.
+
+The selected account uses the same deterministic offline UUID as a Java client with the same username. This means a Java client and a Bedrock client using the same server account resolve to the same UUID instead of appearing as two separate players with the same name.
+
+The current version intentionally refuses to start when `online-mode=true`. Choosing a Java username is not proof of ownership of a Mojang/Microsoft Java account, so BedrockPassport does not spoof an authenticated online-mode identity. Verified online-mode account linking can be added separately later without weakening the offline authentication model.
+
+## Authentication and security
+
+BedrockPassport is an identity selector, not an authentication system.
+
+On an offline-mode server, use a normal authentication plugin if server accounts need password protection. A Bedrock player selecting an existing username is not proof that they own that account; the authentication plugin is responsible for accepting or rejecting the login.
+
+A BedrockPassport username can only be bound to one Xbox XUID at a time. Username comparisons are case-insensitive.
+
+BedrockPassport currently uses Floodgate's linked-player handshake override to provide the selected username and UUID before backend login. If your authentication plugin has an option that automatically trusts or auto-logs-in every Floodgate `isLinked()` player, disable that option unless you intentionally want XUID ownership alone to authorize the selected server account. For password-protected offline accounts, the authentication plugin must still require its normal proof of ownership.
 
 ## Installation
 
-1. Install Geyser-Spigot and Floodgate normally.
+1. Install Geyser-Spigot and Floodgate.
 2. Configure Geyser to use Floodgate authentication.
 3. Put BedrockPassport in the server `plugins` directory.
 4. Start the server.
 
-BedrockPassport stores its data in:
+BedrockPassport stores its mappings in:
 
 `plugins/BedrockPassport/passport.db`
 
-Back up this file together with the rest of your server data. Deleting it removes all Bedrock username bindings.
+Back up this file with the rest of your server data.
 
-## Username rules
-
-The default rules match ordinary Java usernames:
-
-- 3 to 16 characters
-- `A-Z`, `a-z`, `0-9`, and `_`
-- one Bedrock/Xbox XUID can own one BedrockPassport username
-- one BedrockPassport username cannot be assigned to two different XUIDs
-
-The server's existing authentication system remains responsible for deciding whether a selected username represents an existing account, a new account, or requires authentication.
+Existing BedrockPassport 0.5.x single-account databases are migrated automatically to the multi-account schema.
 
 ## Configuration
 
 ```yaml
 identity:
   inactivity-timeout-seconds: 60
+  max-accounts-per-xuid: 3
   min-name-length: 3
   max-name-length: 16
   name-pattern: '^[A-Za-z0-9_]+$'
 form:
   title: 'BedrockPassport'
-  text: 'Choose the Java username you want to use on this server. This choice is linked to your Bedrock/Xbox account.'
+  text: 'Choose the Java username you want to use on this server. Server authentication will still handle login or registration after you connect.'
   input-label: 'Java username'
   input-placeholder: 'Example: Onelsey'
   invalid-name: 'Use 3-16 characters: A-Z, a-z, 0-9 and _.'
-  name-taken: 'That username is already assigned to another Bedrock account.'
-  internal-error: 'BedrockPassport could not save your username. Please reconnect.'
-  timeout: 'BedrockPassport nickname selection timed out. Reconnect and try again.'
+  name-taken: 'That username is already assigned to another Bedrock Passport.'
+  limit-reached: 'Your Bedrock Passport has reached its account limit.'
+  internal-error: 'BedrockPassport could not save your account. Please reconnect.'
+  timeout: 'BedrockPassport selection timed out. Reconnect and try again.'
+selector:
+  title: 'BedrockPassport'
+  text: 'Choose the server account you want to use.'
+  last-used-suffix: '  (last used)'
+  add-account: '+ Add account'
+  manage-accounts: 'Manage accounts'
+manage:
+  title: 'BedrockPassport accounts'
+  text: 'Removing an account only removes it from this Bedrock Passport. Server data and authentication records are not deleted.'
+  remove-prefix: 'Remove: '
+  back: 'Back'
+  confirm-title: 'Remove account'
+  confirm-text: 'Remove %account% from this Bedrock Passport? Server data and passwords are not deleted.'
+  confirm-button: 'Remove from Passport'
+  cancel-button: 'Cancel'
 compatibility:
   holding-world-init-timeout-seconds: 10
 ```
 
+Set `identity.max-accounts-per-xuid` to `0` or a negative value for no BedrockPassport-side account-count limit.
+
 ## Compatibility note
 
-BedrockPassport intentionally does not depend on Paper, Purpur, or Leaf internals. The early identity flow is implemented around Geyser and Floodgate, so the server implementation does not need a separate NMS adapter.
+BedrockPassport does not depend on Paper, Purpur, or Leaf internals. Its early identity flow is implemented around Geyser and Floodgate.
 
-The first-login holding flow does use a small capability-checked bridge to Geyser's pending session internals because the public Geyser API does not currently expose pending sessions before the Java backend login is complete. An incompatible Geyser update should therefore fail at plugin startup instead of silently falling back to a cosmetic nickname.
+The pre-backend holding flow uses a small capability-checked bridge to Geyser's pending session internals because the public Geyser API does not currently expose pending sessions before Java backend login completes. If a future Geyser update changes those internals, BedrockPassport should fail during startup rather than silently falling back to a cosmetic nickname.
 
 ## License
 

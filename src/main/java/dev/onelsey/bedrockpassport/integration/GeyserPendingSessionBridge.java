@@ -5,6 +5,7 @@ import org.bukkit.plugin.Plugin;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -22,15 +23,7 @@ public final class GeyserPendingSessionBridge {
     private final Method sessionScheduleInEventLoop;
     private final Method sessionGetUpstream;
     private final Method upstreamIsInitialized;
-    private final Method sessionSendForm;
-    private final Method customFormBuilder;
-    private final Method builderTitle;
-    private final Method builderLabel;
-    private final Method builderInput;
-    private final Method builderClosedOrInvalid;
-    private final Method builderValid;
-    private final Method builderBuild;
-    private final Method responseAsInput;
+    private final GeyserFormBridge forms;
 
     public GeyserPendingSessionBridge(Plugin geyserPlugin) throws ReflectiveOperationException {
         Objects.requireNonNull(geyserPlugin, "geyserPlugin");
@@ -40,10 +33,6 @@ public final class GeyserPendingSessionBridge {
         Class<?> sessionManagerClass = Class.forName("org.geysermc.geyser.session.SessionManager", true, loader);
         Class<?> sessionClass = Class.forName("org.geysermc.geyser.session.GeyserSession", true, loader);
         Class<?> upstreamClass = Class.forName("org.geysermc.geyser.session.UpstreamSession", true, loader);
-        Class<?> formClass = Class.forName("org.geysermc.cumulus.form.Form", true, loader);
-        Class<?> customFormClass = Class.forName("org.geysermc.cumulus.form.CustomForm", true, loader);
-        Class<?> customFormBuilderClass = Class.forName("org.geysermc.cumulus.form.CustomForm$Builder", true, loader);
-        Class<?> customFormResponseClass = Class.forName("org.geysermc.cumulus.response.CustomFormResponse", true, loader);
 
         Method getInstance = geyserImplClass.getMethod("getInstance");
         this.geyser = getInstance.invoke(null);
@@ -57,15 +46,7 @@ public final class GeyserPendingSessionBridge {
         this.sessionScheduleInEventLoop = sessionClass.getMethod("scheduleInEventLoop", Runnable.class, long.class, TimeUnit.class);
         this.sessionGetUpstream = sessionClass.getMethod("getUpstream");
         this.upstreamIsInitialized = upstreamClass.getMethod("isInitialized");
-        this.sessionSendForm = sessionClass.getMethod("sendForm", formClass);
-        this.customFormBuilder = customFormClass.getMethod("builder");
-        this.builderTitle = customFormBuilderClass.getMethod("title", String.class);
-        this.builderLabel = customFormBuilderClass.getMethod("label", String.class);
-        this.builderInput = customFormBuilderClass.getMethod("input", String.class, String.class, String.class);
-        this.builderClosedOrInvalid = customFormBuilderClass.getMethod("closedOrInvalidResultHandler", Runnable.class);
-        this.builderValid = customFormBuilderClass.getMethod("validResultHandler", Consumer.class);
-        this.builderBuild = customFormBuilderClass.getMethod("build");
-        this.responseAsInput = customFormResponseClass.getMethod("asInput");
+        this.forms = new GeyserFormBridge(loader, sessionClass);
     }
 
     public SessionHandle findByXuid(String xuid) {
@@ -92,7 +73,7 @@ public final class GeyserPendingSessionBridge {
             execute(handle, () -> {
                 try {
                     if (isClosed(handle)) {
-                        future.completeExceptionally(new IllegalStateException("Geyser session closed before nickname selection"));
+                        future.completeExceptionally(new IllegalStateException("Geyser session closed before passport selection"));
                         return;
                     }
                     if (!(boolean) sessionIsSentSpawnPacket.invoke(handle.session())) {
@@ -115,7 +96,7 @@ public final class GeyserPendingSessionBridge {
         }
         try {
             if (isClosed(handle)) {
-                future.completeExceptionally(new IllegalStateException("Geyser session closed while initializing holding world"));
+                future.completeExceptionally(new IllegalStateException("Geyser session closed while initializing passport holding world"));
                 return;
             }
             Object upstream = sessionGetUpstream.invoke(handle.session());
@@ -124,7 +105,7 @@ public final class GeyserPendingSessionBridge {
                 return;
             }
             if (System.nanoTime() >= deadline) {
-                future.completeExceptionally(new IllegalStateException("Geyser holding world initialization timed out"));
+                future.completeExceptionally(new IllegalStateException("Geyser passport holding world initialization timed out"));
                 return;
             }
             sessionScheduleInEventLoop.invoke(handle.session(), (Runnable) () -> probeInitialized(handle, future, deadline), 50L, TimeUnit.MILLISECONDS);
@@ -145,41 +126,32 @@ public final class GeyserPendingSessionBridge {
             Runnable onClosed,
             Consumer<Throwable> onFailure
     ) {
-        try {
-            execute(handle, () -> {
-                try {
-                    if (isClosed(handle)) {
-                        onFailure.accept(new IllegalStateException("Geyser session closed before form could be shown"));
-                        return;
-                    }
-                    Object builder = customFormBuilder.invoke(null);
-                    builderTitle.invoke(builder, title);
-                    if (error != null && !error.isBlank()) {
-                        builderLabel.invoke(builder, "§c" + error);
-                    }
-                    builderLabel.invoke(builder, text);
-                    builderInput.invoke(builder, inputLabel, placeholder, initialValue == null ? "" : initialValue);
-                    builderClosedOrInvalid.invoke(builder, onClosed);
-                    Consumer<Object> responseConsumer = response -> {
-                        try {
-                            onSubmit.accept((String) responseAsInput.invoke(response));
-                        } catch (Throwable throwable) {
-                            onFailure.accept(bridgeFailure(throwable));
-                        }
-                    };
-                    builderValid.invoke(builder, responseConsumer);
-                    Object form = builderBuild.invoke(builder);
-                    Object sent = sessionSendForm.invoke(handle.session(), form);
-                    if (sent instanceof Boolean success && !success) {
-                        onFailure.accept(new IllegalStateException("Geyser rejected the nickname form"));
-                    }
-                } catch (Throwable throwable) {
-                    onFailure.accept(bridgeFailure(throwable));
-                }
-            });
-        } catch (Throwable throwable) {
-            onFailure.accept(bridgeFailure(throwable));
-        }
+        forms.showNicknameForm(handle.session(), title, text, inputLabel, placeholder, initialValue, error, onSubmit, onClosed, onFailure);
+    }
+
+    public void showMenu(
+            SessionHandle handle,
+            String title,
+            String content,
+            List<String> buttons,
+            Consumer<Integer> onSelected,
+            Runnable onClosed,
+            Consumer<Throwable> onFailure
+    ) {
+        forms.showMenu(handle.session(), title, content, buttons, onSelected, onClosed, onFailure);
+    }
+
+    public void showConfirmation(
+            SessionHandle handle,
+            String title,
+            String content,
+            String confirmButton,
+            String cancelButton,
+            Consumer<Boolean> onResult,
+            Runnable onClosed,
+            Consumer<Throwable> onFailure
+    ) {
+        forms.showConfirmation(handle.session(), title, content, confirmButton, cancelButton, onResult, onClosed, onFailure);
     }
 
     public void schedule(SessionHandle handle, Runnable runnable, long delayMillis) {
@@ -210,7 +182,7 @@ public final class GeyserPendingSessionBridge {
         return bridgeFailure(exception);
     }
 
-    private static RuntimeException bridgeFailure(Throwable throwable) {
+    static RuntimeException bridgeFailure(Throwable throwable) {
         Throwable cause = throwable instanceof InvocationTargetException invocation && invocation.getCause() != null
                 ? invocation.getCause()
                 : throwable;
