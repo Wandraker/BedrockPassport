@@ -1,0 +1,16 @@
+identity:
+  inactivity-timeout-seconds: 60
+  min-name-length: 3
+  max-name-length: 16
+  name-pattern: '^[A-Za-z0-9_]+$'
+form:
+  title: 'BedrockPassport'
+  text: 'Choose the Java username you want to use on this server. This choice is linked to your Bedrock/Xbox account.'
+  input-label: 'Java username'
+  input-placeholder: 'Example: Onelsey'
+  invalid-name: 'Use 3-16 characters: A-Z, a-z, 0-9 and _.'
+  name-taken: 'That username is already assigned to another Bedrock account.'
+  internal-error: 'BedrockPassport could not save your username. Please reconnect.'
+  timeout: 'BedrockPassport nickname selection timed out. Reconnect and try again.'
+compatibility:
+  holding-world-init-timeout-seconds: 10

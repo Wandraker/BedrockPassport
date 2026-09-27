@@ -1,0 +1,13 @@
+name: BedrockPassport
+version: '${version}'
+main: dev.onelsey.bedrockpassport.BedrockPassportPlugin
+api-version: '26.2'
+author: Onelsey
+website: https://github.com/Wandraker/BedrockPassport
+description: Persistent Java identities for Bedrock players using Geyser and Floodgate.
+depend:
+  - Geyser-Spigot
+  - floodgate
+folia-supported: true
+libraries:
+  - org.xerial:sqlite-jdbc:3.50.3.0
