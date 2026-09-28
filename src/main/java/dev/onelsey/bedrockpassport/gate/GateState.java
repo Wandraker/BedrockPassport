@@ -17,6 +17,7 @@ final class GateState {
     private final AtomicLong screenSequence = new AtomicLong();
     private final AtomicBoolean actionInFlight = new AtomicBoolean(false);
     volatile String lastInput = "";
+    volatile UUID reservedJavaUuid;
 
     GateState(String xuid, UUID floodgateUuid, GeyserPendingSessionBridge.SessionHandle handle) {
         this.xuid = xuid;

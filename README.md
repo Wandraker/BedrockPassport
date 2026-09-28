@@ -64,15 +64,42 @@ The selected account uses the same deterministic offline UUID as a Java client w
 
 The current version intentionally refuses to start when `online-mode=true`. Choosing a Java username is not proof of ownership of a Mojang/Microsoft Java account, so BedrockPassport does not spoof an authenticated online-mode identity. Verified online-mode account linking can be added separately later without weakening the offline authentication model.
 
+## Session protection
+
+With `security.first-session-wins: true`, the connection that already owns or has reserved an identity keeps it.
+
+- Bedrock selecting an account that is already online or already being admitted stays in the Passport flow and sees an account-in-use message.
+- Java trying to log in with the exact same identity while that identity is online or pending through BedrockPassport is rejected before Paper can replace the existing Bedrock session.
+- A Java login that has already passed pre-login is temporarily reserved so a Bedrock selection cannot race it during the small window before the Java player joins.
+- Java-to-Java duplicate-login behavior is not replaced by BedrockPassport and remains the responsibility of the server and its authentication stack.
+
+Pending reservations expire automatically. This prevents failed or unauthorized second logins from being used to repeatedly kick the player who is already playing while avoiding stale locks after an interrupted login.
+
+## Bedrock name collision protection
+
+`security.case-insensitive-bedrock-names` controls how BedrockPassport treats case variants when reserving and selecting Bedrock identities.
+
+When enabled, `Onelsey`, `onelsey`, `ONSELSEY`, and similar variants are the same BedrockPassport name. This is the recommended setting for offline-mode servers.
+
+When disabled, BedrockPassport treats case variants as different names. Because offline UUIDs are case-sensitive, those variants also become different Java identities. Disable this only when the server administrator explicitly wants that behavior.
+
+If case-insensitive mode is enabled after a case-sensitive database has already created conflicting variants, BedrockPassport refuses to start instead of silently merging or deleting identities.
+
 ## Authentication and security
 
 BedrockPassport is an identity selector, not an authentication system.
 
 On an offline-mode server, use a normal authentication plugin if server accounts need password protection. A Bedrock player selecting an existing username is not proof that they own that account; the authentication plugin is responsible for accepting or rejecting the login.
 
-A BedrockPassport username can only be bound to one Xbox XUID at a time. Username comparisons are case-insensitive.
+A BedrockPassport name key can only be bound to one Xbox XUID at a time according to the configured case-collision mode.
 
 BedrockPassport currently uses Floodgate's linked-player handshake override to provide the selected username and UUID before backend login. If your authentication plugin has an option that automatically trusts or auto-logs-in every Floodgate `isLinked()` player, disable that option unless you intentionally want XUID ownership alone to authorize the selected server account. For password-protected offline accounts, the authentication plugin must still require its normal proof of ownership.
+
+## Holding-world timeout handling
+
+Paper-compatible servers normally use a backend login read timeout. With `compatibility.suspend-backend-read-timeout: true`, BedrockPassport temporarily suspends that existing read timeout while the player is in the Passport holding flow, then restores the original timeout before normal backend login continues.
+
+This makes the BedrockPassport inactivity timer authoritative even when a player spends more than 30 seconds navigating forms but continues interacting. The default Passport inactivity timeout is 60 seconds.
 
 ## Installation
 
@@ -87,7 +114,7 @@ BedrockPassport stores its mappings in:
 
 Back up this file with the rest of your server data.
 
-Existing BedrockPassport 0.5.x single-account databases are migrated automatically to the multi-account schema.
+Existing BedrockPassport 0.5.x and 0.6.0 databases are migrated automatically.
 
 ## Configuration
 
@@ -98,6 +125,11 @@ identity:
   min-name-length: 3
   max-name-length: 16
   name-pattern: '^[A-Za-z0-9_]+$'
+security:
+  first-session-wins: true
+  case-insensitive-bedrock-names: true
+  duplicate-login-message: 'This server account is already online.'
+  pending-reservation-seconds: 45
 form:
   title: 'BedrockPassport'
   text: 'Choose the Java username you want to use on this server. Server authentication will still handle login or registration after you connect.'
@@ -106,6 +138,8 @@ form:
   invalid-name: 'Use 3-16 characters: A-Z, a-z, 0-9 and _.'
   name-taken: 'That username is already assigned to another Bedrock Passport.'
   limit-reached: 'Your Bedrock Passport has reached its account limit.'
+  account-in-use: 'That server account is already online.'
+  passport-in-use: 'This Bedrock/Xbox account already has a pending Passport session.'
   internal-error: 'BedrockPassport could not save your account. Please reconnect.'
   timeout: 'BedrockPassport selection timed out. Reconnect and try again.'
 selector:
@@ -125,13 +159,17 @@ manage:
   cancel-button: 'Cancel'
 compatibility:
   holding-world-init-timeout-seconds: 10
+  suspend-backend-read-timeout: true
+  form-transition-delay-millis: 250
 ```
 
 Set `identity.max-accounts-per-xuid` to `0` or a negative value for no BedrockPassport-side account-count limit.
 
+`compatibility.form-transition-delay-millis` adds a small delay after successful text-form submission before backend login continues. This gives mobile Bedrock clients time to close the virtual keyboard cleanly.
+
 ## Compatibility note
 
-BedrockPassport does not depend on Paper, Purpur, or Leaf internals. Its early identity flow is implemented around Geyser and Floodgate.
+BedrockPassport does not depend on Paper, Purpur, or Leaf NMS. Its early identity flow is implemented around Geyser and Floodgate plus the normal Paper-compatible login/event surface.
 
 The pre-backend holding flow uses a small capability-checked bridge to Geyser's pending session internals because the public Geyser API does not currently expose pending sessions before Java backend login completes. If a future Geyser update changes those internals, BedrockPassport should fail during startup rather than silently falling back to a cosmetic nickname.
 

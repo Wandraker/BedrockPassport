@@ -4,6 +4,11 @@ identity:
   min-name-length: 3
   max-name-length: 16
   name-pattern: '^[A-Za-z0-9_]+$'
+security:
+  first-session-wins: true
+  case-insensitive-bedrock-names: true
+  duplicate-login-message: 'This server account is already online.'
+  pending-reservation-seconds: 45
 form:
   title: 'BedrockPassport'
   text: 'Choose the Java username you want to use on this server. Server authentication will still handle login or registration after you connect.'
@@ -12,6 +17,8 @@ form:
   invalid-name: 'Use 3-16 characters: A-Z, a-z, 0-9 and _.'
   name-taken: 'That username is already assigned to another Bedrock Passport.'
   limit-reached: 'Your Bedrock Passport has reached its account limit.'
+  account-in-use: 'That server account is already online.'
+  passport-in-use: 'This Bedrock/Xbox account already has a pending Passport session.'
   internal-error: 'BedrockPassport could not save your account. Please reconnect.'
   timeout: 'BedrockPassport selection timed out. Reconnect and try again.'
 selector:
@@ -31,3 +38,5 @@ manage:
   cancel-button: 'Cancel'
 compatibility:
   holding-world-init-timeout-seconds: 10
+  suspend-backend-read-timeout: true
+  form-transition-delay-millis: 250

@@ -8,6 +8,8 @@ public record GateMessages(
         String invalidName,
         String nameTaken,
         String limitReached,
+        String accountInUse,
+        String passportInUse,
         String internalError,
         String timeout,
         String selectorTitle,

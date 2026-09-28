@@ -1,10 +1,11 @@
 package dev.onelsey.bedrockpassport.integration;
 
 import dev.onelsey.bedrockpassport.data.Identity;
-import dev.onelsey.bedrockpassport.gate.GateMessages;
-import dev.onelsey.bedrockpassport.gate.IdentityGate;
 import dev.onelsey.bedrockpassport.gate.GateClosedException;
+import dev.onelsey.bedrockpassport.gate.GateMessages;
 import dev.onelsey.bedrockpassport.gate.GateTimeoutException;
+import dev.onelsey.bedrockpassport.gate.IdentityGate;
+import dev.onelsey.bedrockpassport.gate.PassportSessionBusyException;
 import org.geysermc.floodgate.api.InstanceHolder;
 import org.geysermc.floodgate.api.handshake.HandshakeData;
 import org.geysermc.floodgate.api.handshake.HandshakeHandler;
@@ -22,12 +23,19 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
     private final GateMessages messages;
     private final Logger logger;
     private final HandshakeHandlers handlers;
+    private final BackendReadTimeoutGuard timeoutGuard;
     private int registrationId = -1;
 
-    public FloodgateIdentityBridge(IdentityGate gate, GateMessages messages, Logger logger) {
+    public FloodgateIdentityBridge(
+            IdentityGate gate,
+            GateMessages messages,
+            Logger logger,
+            BackendReadTimeoutGuard timeoutGuard
+    ) {
         this.gate = gate;
         this.messages = messages;
         this.logger = logger;
+        this.timeoutGuard = timeoutGuard;
         this.handlers = InstanceHolder.getHandshakeHandlers();
         if (handlers == null) {
             throw new IllegalStateException("Floodgate handshake API is unavailable");
@@ -54,27 +62,45 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
             return;
         }
 
+        BackendReadTimeoutGuard.Lease timeoutLease = timeoutGuard.suspend(data.getChannel());
+        Identity identity = null;
         try {
-            Identity identity = gate.resolve(xuid, floodgateUuid).join();
+            identity = gate.resolve(xuid, floodgateUuid).join();
             if (identity.javaUuid() == null) {
                 throw new IllegalStateException("Resolved BedrockPassport identity has no Java UUID");
             }
             data.setLinkedPlayer(LinkedPlayer.of(identity.gameName(), identity.javaUuid(), floodgateUuid));
+        } catch (PassportSessionBusyException busy) {
+            releaseIfSelected(xuid, identity);
+            data.setDisconnectReason(busy.getMessage());
         } catch (GateClosedException closed) {
+            releaseIfSelected(xuid, identity);
             data.setDisconnectReason("Bedrock connection closed.");
         } catch (CompletionException exception) {
+            releaseIfSelected(xuid, identity);
             Throwable cause = unwrap(exception);
             if (cause instanceof GateTimeoutException) {
                 data.setDisconnectReason(messages.timeout());
             } else if (cause instanceof GateClosedException) {
                 data.setDisconnectReason("Bedrock connection closed.");
+            } else if (cause instanceof PassportSessionBusyException busy) {
+                data.setDisconnectReason(busy.getMessage());
             } else {
                 logger.log(Level.SEVERE, "BedrockPassport failed to resolve identity for XUID " + xuid, cause);
                 data.setDisconnectReason(messages.internalError());
             }
         } catch (Exception exception) {
+            releaseIfSelected(xuid, identity);
             logger.log(Level.SEVERE, "BedrockPassport failed to resolve identity for XUID " + xuid, exception);
             data.setDisconnectReason(messages.internalError());
+        } finally {
+            timeoutLease.close();
+        }
+    }
+
+    private void releaseIfSelected(String xuid, Identity identity) {
+        if (identity != null && identity.javaUuid() != null) {
+            gate.releaseReservation(xuid, identity.javaUuid());
         }
     }
 
