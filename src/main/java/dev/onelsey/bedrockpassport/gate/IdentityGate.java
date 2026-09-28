@@ -79,6 +79,10 @@ public final class IdentityGate implements AutoCloseable {
 
         candidate.result.whenComplete((identity, error) -> {
             active.remove(xuid, candidate);
+            if (candidate.downstreamReadTimeoutLease != null) {
+                candidate.downstreamReadTimeoutLease.close();
+                candidate.downstreamReadTimeoutLease = null;
+            }
             if (error != null && candidate.reservedJavaUuid != null) {
                 sessionGuard.releaseBedrockReservation(candidate.reservedJavaUuid, candidate.xuid);
                 candidate.reservedJavaUuid = null;
@@ -95,6 +99,7 @@ public final class IdentityGate implements AutoCloseable {
         }
 
         try {
+            state.downstreamReadTimeoutLease = geyser.suspendDownstreamReadTimeout(state.handle);
             geyser.enterHoldingWorld(state.handle, holdingWorldInitTimeoutSeconds).whenComplete((ready, error) -> {
                 if (error != null) {
                     state.result.completeExceptionally(error);

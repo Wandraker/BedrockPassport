@@ -97,9 +97,9 @@ BedrockPassport currently uses Floodgate's linked-player handshake override to p
 
 ## Holding-world timeout handling
 
-Paper-compatible servers normally use a backend login read timeout. With `compatibility.suspend-backend-read-timeout: true`, BedrockPassport temporarily suspends that existing read timeout while the player is in the Passport holding flow, then restores the original timeout before normal backend login continues.
+Geyser's Java downstream connection normally uses MCProtocolLib's 30-second read timeout. BedrockPassport can keep a Bedrock player in the Passport holding flow longer than that while forms are still active. With `compatibility.suspend-geyser-downstream-read-timeout: true`, BedrockPassport temporarily suspends the Geyser downstream `read-timeout` handler while the Passport selector is active and restores its original timeout before normal backend login continues.
 
-This makes the BedrockPassport inactivity timer authoritative even when a player spends more than 30 seconds navigating forms but continues interacting. The default Passport inactivity timeout is 60 seconds.
+This makes the BedrockPassport inactivity timer authoritative during account selection. The default Passport inactivity timeout is 60 seconds, and when it expires the player receives the configured user-facing timeout message instead of a raw Netty `ReadTimeoutException`.
 
 ## Installation
 
@@ -141,7 +141,7 @@ form:
   account-in-use: 'That server account is already online.'
   passport-in-use: 'This Bedrock/Xbox account already has a pending Passport session.'
   internal-error: 'BedrockPassport could not save your account. Please reconnect.'
-  timeout: 'BedrockPassport selection timed out. Reconnect and try again.'
+  timeout: 'You did not choose an account in time. Reconnect and try again.'
 selector:
   title: 'BedrockPassport'
   text: 'Choose the server account you want to use.'
@@ -159,7 +159,7 @@ manage:
   cancel-button: 'Cancel'
 compatibility:
   holding-world-init-timeout-seconds: 10
-  suspend-backend-read-timeout: true
+  suspend-geyser-downstream-read-timeout: true
   form-transition-delay-millis: 250
 ```
 

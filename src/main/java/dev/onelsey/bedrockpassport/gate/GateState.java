@@ -18,6 +18,7 @@ final class GateState {
     private final AtomicBoolean actionInFlight = new AtomicBoolean(false);
     volatile String lastInput = "";
     volatile UUID reservedJavaUuid;
+    volatile GeyserPendingSessionBridge.DownstreamReadTimeoutLease downstreamReadTimeoutLease;
 
     GateState(String xuid, UUID floodgateUuid, GeyserPendingSessionBridge.SessionHandle handle) {
         this.xuid = xuid;

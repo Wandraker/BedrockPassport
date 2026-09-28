@@ -4,7 +4,6 @@ import dev.onelsey.bedrockpassport.data.IdentityRepository;
 import dev.onelsey.bedrockpassport.gate.GateMessages;
 import dev.onelsey.bedrockpassport.gate.IdentityGate;
 import dev.onelsey.bedrockpassport.identity.JavaUuidResolver;
-import dev.onelsey.bedrockpassport.integration.BackendReadTimeoutGuard;
 import dev.onelsey.bedrockpassport.integration.FloodgateIdentityBridge;
 import dev.onelsey.bedrockpassport.integration.GeyserPendingSessionBridge;
 import dev.onelsey.bedrockpassport.name.NamePolicy;
@@ -39,11 +38,12 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             );
             long inactivityTimeoutSeconds = getConfig().getLong("identity.inactivity-timeout-seconds", 60L);
             long pendingReservationSeconds = getConfig().getLong("security.pending-reservation-seconds", 45L);
-            boolean suspendBackendReadTimeout = getConfig().getBoolean("compatibility.suspend-backend-read-timeout", true);
+            boolean suspendGeyserDownstreamReadTimeout = getConfig().getBoolean("compatibility.suspend-geyser-downstream-read-timeout",
+                    getConfig().getBoolean("compatibility.suspend-backend-read-timeout", true));
 
             NameCollisionPolicy nameCollisionPolicy = new NameCollisionPolicy(caseInsensitiveNames);
             repository = new IdentityRepository(getDataFolder().toPath().resolve("passport.db"), nameCollisionPolicy);
-            GeyserPendingSessionBridge geyserBridge = new GeyserPendingSessionBridge(geyserPlugin);
+            GeyserPendingSessionBridge geyserBridge = new GeyserPendingSessionBridge(geyserPlugin, suspendGeyserDownstreamReadTimeout);
             NamePolicy namePolicy = new NamePolicy(
                     getConfig().getInt("identity.min-name-length", 3),
                     getConfig().getInt("identity.max-name-length", 16),
@@ -68,7 +68,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     getConfig().getString("form.account-in-use", "That server account is already online."),
                     getConfig().getString("form.passport-in-use", "This Bedrock/Xbox account already has a pending Passport session."),
                     getConfig().getString("form.internal-error", "BedrockPassport could not save your account. Please reconnect."),
-                    getConfig().getString("form.timeout", "BedrockPassport selection timed out. Reconnect and try again."),
+                    getConfig().getString("form.timeout", "You did not choose an account in time. Reconnect and try again."),
                     getConfig().getString("selector.title", "BedrockPassport"),
                     getConfig().getString("selector.text", "Choose the server account you want to use."),
                     getConfig().getString("selector.last-used-suffix", "  (last used)"),
@@ -95,12 +95,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     getConfig().getLong("compatibility.holding-world-init-timeout-seconds", 10L),
                     getConfig().getLong("compatibility.form-transition-delay-millis", 250L)
             );
-            floodgateBridge = new FloodgateIdentityBridge(
-                    gate,
-                    messages,
-                    getLogger(),
-                    new BackendReadTimeoutGuard(suspendBackendReadTimeout)
-            );
+            floodgateBridge = new FloodgateIdentityBridge(gate, messages, getLogger());
             floodgateBridge.register();
 
             getLogger().info("BedrockPassport enabled. Geyser pending-session bridge capability check passed.");

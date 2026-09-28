@@ -20,7 +20,7 @@ form:
   account-in-use: 'That server account is already online.'
   passport-in-use: 'This Bedrock/Xbox account already has a pending Passport session.'
   internal-error: 'BedrockPassport could not save your account. Please reconnect.'
-  timeout: 'BedrockPassport selection timed out. Reconnect and try again.'
+  timeout: 'You did not choose an account in time. Reconnect and try again.'
 selector:
   title: 'BedrockPassport'
   text: 'Choose the server account you want to use.'
@@ -38,5 +38,5 @@ manage:
   cancel-button: 'Cancel'
 compatibility:
   holding-world-init-timeout-seconds: 10
-  suspend-backend-read-timeout: true
+  suspend-geyser-downstream-read-timeout: true
   form-transition-delay-millis: 250

@@ -23,19 +23,12 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
     private final GateMessages messages;
     private final Logger logger;
     private final HandshakeHandlers handlers;
-    private final BackendReadTimeoutGuard timeoutGuard;
     private int registrationId = -1;
 
-    public FloodgateIdentityBridge(
-            IdentityGate gate,
-            GateMessages messages,
-            Logger logger,
-            BackendReadTimeoutGuard timeoutGuard
-    ) {
+    public FloodgateIdentityBridge(IdentityGate gate, GateMessages messages, Logger logger) {
         this.gate = gate;
         this.messages = messages;
         this.logger = logger;
-        this.timeoutGuard = timeoutGuard;
         this.handlers = InstanceHolder.getHandshakeHandlers();
         if (handlers == null) {
             throw new IllegalStateException("Floodgate handshake API is unavailable");
@@ -62,7 +55,6 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
             return;
         }
 
-        BackendReadTimeoutGuard.Lease timeoutLease = timeoutGuard.suspend(data.getChannel());
         Identity identity = null;
         try {
             identity = gate.resolve(xuid, floodgateUuid).join();
@@ -93,8 +85,6 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
             releaseIfSelected(xuid, identity);
             logger.log(Level.SEVERE, "BedrockPassport failed to resolve identity for XUID " + xuid, exception);
             data.setDisconnectReason(messages.internalError());
-        } finally {
-            timeoutLease.close();
         }
     }
 
