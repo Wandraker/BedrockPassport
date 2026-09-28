@@ -2,6 +2,7 @@ package dev.onelsey.bedrockpassport.command;
 
 import dev.onelsey.bedrockpassport.BedrockPassportPlugin;
 import dev.onelsey.bedrockpassport.security.SessionGuard;
+import dev.onelsey.bedrockpassport.ui.ChatUi;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -21,7 +22,7 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!sender.hasPermission("bedrockpassport.admin")) {
-            sender.sendMessage("You do not have permission to use BedrockPassport admin commands.");
+            sender.sendMessage(ChatUi.error("You do not have permission to use this command."));
             return true;
         }
 
@@ -32,44 +33,48 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
 
         if (args[0].equalsIgnoreCase("reload")) {
             BedrockPassportPlugin.ReloadResult result = plugin.reloadPassport();
-            sender.sendMessage(result.message());
+            sender.sendMessage(result.success() ? ChatUi.success(result.message()) : ChatUi.error(result.message()));
             return true;
         }
 
         if (args[0].equalsIgnoreCase("who")) {
             if (args.length < 2) {
-                sender.sendMessage("Usage: /" + label + " who <javaName>");
+                sender.sendMessage(ChatUi.warning("Usage: /" + label + " who <javaName>"));
                 return true;
             }
             SessionGuard.SessionSnapshot snapshot = plugin.sessionSnapshot(args[1]);
             if (snapshot == null) {
-                sender.sendMessage("BedrockPassport: no active or pending session for " + args[1] + ".");
+                sender.sendMessage(ChatUi.warning("No active or pending session for " + args[1] + "."));
                 return true;
             }
-            sender.sendMessage("BedrockPassport session for " + snapshot.javaName() + ":");
-            sender.sendMessage("  state: " + snapshot.state());
-            sender.sendMessage("  java UUID: " + snapshot.javaUuid());
+            sender.sendMessage(ChatUi.info("Session for " + snapshot.javaName()));
+            sender.sendMessage(ChatUi.accentValue("state", snapshot.state()));
+            sender.sendMessage(ChatUi.value("Java UUID", snapshot.javaUuid()));
+            sender.sendMessage(ChatUi.value("source", snapshot.bedrock() ? "Bedrock" : "Java"));
             if (snapshot.bedrock()) {
-                sender.sendMessage("  source: Bedrock");
-                sender.sendMessage("  Xbox name: " + (snapshot.bedrockUsername() == null ? "unknown" : snapshot.bedrockUsername()));
-                sender.sendMessage("  XUID: " + (snapshot.xuid() == null ? "unknown" : snapshot.xuid()));
-            } else {
-                sender.sendMessage("  source: Java");
+                sender.sendMessage(ChatUi.accentValue("Xbox name", snapshot.bedrockUsername() == null ? "unknown" : snapshot.bedrockUsername()));
+                sender.sendMessage(ChatUi.value("XUID", snapshot.xuid() == null ? "unknown" : snapshot.xuid()));
             }
             return true;
         }
 
-        sender.sendMessage("Usage: /" + label + " <status|reload|who <javaName>>");
+        sender.sendMessage(ChatUi.warning("Usage: /" + label + " <status|reload|who <javaName>>"));
         return true;
     }
 
     private void sendStatus(CommandSender sender) {
-        sender.sendMessage("BedrockPassport " + plugin.getDescription().getVersion());
-        sender.sendMessage("  runtime: " + (plugin.runtimeReady() ? "ready" : "not ready"));
-        sender.sendMessage("  Passport selectors: " + plugin.activeSelectionCount());
-        sender.sendMessage("  tracked sessions: " + plugin.trackedSessionCount());
-        sender.sendMessage("  pending admissions: " + plugin.pendingAdmissionCount());
-        sender.sendMessage("  config schema: " + plugin.getConfig().getInt("config-version", 0));
+        sender.sendMessage(ChatUi.info("BedrockPassport " + plugin.getDescription().getVersion()));
+        if (plugin.runtimeReady()) {
+            sender.sendMessage(ChatUi.goodValue("runtime", "ready"));
+        } else {
+            sender.sendMessage(ChatUi.value("runtime", "not ready"));
+        }
+        sender.sendMessage(ChatUi.accentValue("Passport selectors", plugin.activeSelectionCount()));
+        sender.sendMessage(ChatUi.accentValue("tracked sessions", plugin.trackedSessionCount()));
+        sender.sendMessage(ChatUi.accentValue("pending admissions", plugin.pendingAdmissionCount()));
+        sender.sendMessage(ChatUi.accentValue("skin policy", plugin.skinPolicyName()));
+        sender.sendMessage(ChatUi.value("SkinsRestorer", plugin.skinsRestorerPresent() ? "detected" : "not detected"));
+        sender.sendMessage(ChatUi.value("config schema", plugin.getConfig().getInt("config-version", 0)));
     }
 
     @Override

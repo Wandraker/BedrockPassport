@@ -1,4 +1,4 @@
-config-version: 1
+config-version: 2
 identity:
   inactivity-timeout-seconds: 60
   max-accounts-per-xuid: 3
@@ -10,10 +10,12 @@ security:
   case-insensitive-bedrock-names: true
   duplicate-login-message: 'This server account is already online.'
   pending-reservation-seconds: 45
+skins:
+  policy: preserve
 form:
-  title: 'BedrockPassport'
-  text: 'Choose the Java username you want to use on this server. Server authentication will still handle login or registration after you connect.'
-  input-label: 'Java username'
+  title: '§l§bBedrockPassport'
+  text: "§fChoose the Java account you want to use.\n§7Authentication still happens on the server after this step."
+  input-label: '§bJava username'
   input-placeholder: 'Example: Onelsey'
   invalid-name: 'Use 3-16 characters: A-Z, a-z, 0-9 and _.'
   name-taken: 'That account is already saved in this Passport.'
@@ -23,20 +25,20 @@ form:
   internal-error: 'BedrockPassport could not save your account. Please reconnect.'
   timeout: 'You did not choose an account in time. Reconnect and try again.'
 selector:
-  title: 'BedrockPassport'
-  text: 'Choose the server account you want to use.'
-  last-used-suffix: '  (last used)'
-  add-account: '+ Add account'
-  manage-accounts: 'Manage accounts'
+  title: '§l§bBedrockPassport'
+  text: "§fChoose your server account.\n§7The last used account is marked with §a✓§7."
+  last-used-suffix: ' §a✓'
+  add-account: '§a＋ Add account'
+  manage-accounts: '§e⚙ Manage accounts'
 manage:
-  title: 'BedrockPassport accounts'
-  text: 'Removing an account only removes it from this Bedrock Passport. Server data and authentication records are not deleted.'
-  remove-prefix: 'Remove: '
-  back: 'Back'
-  confirm-title: 'Remove account'
-  confirm-text: 'Remove %account% from this Bedrock Passport? Server data and passwords are not deleted.'
-  confirm-button: 'Remove from Passport'
-  cancel-button: 'Cancel'
+  title: '§l§bPassport accounts'
+  text: "§fManage saved account shortcuts.\n§7Removing one does not delete server data or passwords."
+  remove-prefix: '§c✕ '
+  back: '§b← Back'
+  confirm-title: '§l§cRemove account'
+  confirm-text: "§fRemove %account% from this Bedrock Passport?\n§7Server data and passwords are not deleted."
+  confirm-button: '§cRemove'
+  cancel-button: '§bCancel'
 compatibility:
   holding-world-init-timeout-seconds: 10
   suspend-geyser-downstream-read-timeout: true

@@ -1,7 +1,7 @@
 package dev.onelsey.bedrockpassport.security;
 
 import dev.onelsey.bedrockpassport.data.Identity;
-import net.kyori.adventure.text.Component;
+import dev.onelsey.bedrockpassport.ui.ChatUi;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -204,26 +204,26 @@ public final class SessionGuard implements Listener, AutoCloseable {
                 }
                 ActiveSession active = activeByUuid.get(event.getUniqueId());
                 if (active != null) {
-                    event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, Component.text(duplicateLoginMessage));
+                    event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, ChatUi.error(duplicateLoginMessage));
                 }
                 return;
             }
 
             ActiveSession active = activeByUuid.get(event.getUniqueId());
             if (active != null && active.bedrock()) {
-                event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, Component.text(duplicateLoginMessage));
+                event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, ChatUi.error(duplicateLoginMessage));
                 return;
             }
 
             ActiveSession sameExactName = activeBedrockByExactName.get(event.getName());
             if (sameExactName != null) {
-                event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, Component.text(duplicateLoginMessage));
+                event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, ChatUi.error(duplicateLoginMessage));
                 return;
             }
 
             PendingBedrock pending = pendingBedrockByUuid.get(event.getUniqueId());
             if (pending != null || hasPendingBedrockExactNameLocked(event.getName())) {
-                event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, Component.text(duplicateLoginMessage));
+                event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, ChatUi.error(duplicateLoginMessage));
                 return;
             }
 

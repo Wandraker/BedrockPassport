@@ -24,18 +24,21 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
     private final Logger logger;
     private final HandshakeHandlers handlers;
     private final ServerLoginReadTimeoutGuard serverTimeoutGuard;
+    private final FloodgateSkinPolicy skinPolicy;
     private int registrationId = -1;
 
     public FloodgateIdentityBridge(
             IdentityGate gate,
             GateMessages messages,
             Logger logger,
-            ServerLoginReadTimeoutGuard serverTimeoutGuard
+            ServerLoginReadTimeoutGuard serverTimeoutGuard,
+            FloodgateSkinPolicy skinPolicy
     ) {
         this.gate = gate;
         this.messages = messages;
         this.logger = logger;
         this.serverTimeoutGuard = serverTimeoutGuard;
+        this.skinPolicy = skinPolicy;
         this.handlers = InstanceHolder.getHandshakeHandlers();
         if (handlers == null) {
             throw new IllegalStateException("Floodgate handshake API is unavailable");
@@ -58,7 +61,7 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
         String xuid = data.getBedrockData().getXuid();
         UUID floodgateUuid = data.getJavaUniqueId();
         if (xuid == null || xuid.isBlank() || floodgateUuid == null) {
-            data.setDisconnectReason(messages.internalError());
+            data.setDisconnectReason(disconnectReason(messages.internalError()));
             return;
         }
 
@@ -70,32 +73,37 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
                 throw new IllegalStateException("Resolved BedrockPassport identity has no Java UUID");
             }
             data.setLinkedPlayer(LinkedPlayer.of(identity.gameName(), identity.javaUuid(), floodgateUuid));
+            skinPolicy.track(xuid, identity.javaUuid(), identity.gameName());
         } catch (PassportSessionBusyException busy) {
             releaseIfSelected(xuid, identity);
-            data.setDisconnectReason(busy.getMessage());
+            data.setDisconnectReason(disconnectReason(busy.getMessage()));
         } catch (GateClosedException closed) {
             releaseIfSelected(xuid, identity);
-            data.setDisconnectReason("Bedrock connection closed.");
+            data.setDisconnectReason(disconnectReason("Bedrock connection closed."));
         } catch (CompletionException exception) {
             releaseIfSelected(xuid, identity);
             Throwable cause = unwrap(exception);
             if (cause instanceof GateTimeoutException) {
-                data.setDisconnectReason(messages.timeout());
+                data.setDisconnectReason(disconnectReason(messages.timeout()));
             } else if (cause instanceof GateClosedException) {
-                data.setDisconnectReason("Bedrock connection closed.");
+                data.setDisconnectReason(disconnectReason("Bedrock connection closed."));
             } else if (cause instanceof PassportSessionBusyException busy) {
-                data.setDisconnectReason(busy.getMessage());
+                data.setDisconnectReason(disconnectReason(busy.getMessage()));
             } else {
                 logger.log(Level.SEVERE, "BedrockPassport failed to resolve identity for XUID " + xuid, cause);
-                data.setDisconnectReason(messages.internalError());
+                data.setDisconnectReason(disconnectReason(messages.internalError()));
             }
         } catch (Exception exception) {
             releaseIfSelected(xuid, identity);
             logger.log(Level.SEVERE, "BedrockPassport failed to resolve identity for XUID " + xuid, exception);
-            data.setDisconnectReason(messages.internalError());
+            data.setDisconnectReason(disconnectReason(messages.internalError()));
         } finally {
             serverTimeoutLease.close();
         }
+    }
+
+    private static String disconnectReason(String message) {
+        return "§bBedrockPassport §8» §f" + message;
     }
 
     private void releaseIfSelected(String xuid, Identity identity) {

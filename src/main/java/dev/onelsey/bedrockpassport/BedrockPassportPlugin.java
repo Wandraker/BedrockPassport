@@ -7,6 +7,7 @@ import dev.onelsey.bedrockpassport.gate.GateMessages;
 import dev.onelsey.bedrockpassport.gate.IdentityGate;
 import dev.onelsey.bedrockpassport.identity.JavaUuidResolver;
 import dev.onelsey.bedrockpassport.integration.FloodgateIdentityBridge;
+import dev.onelsey.bedrockpassport.integration.FloodgateSkinPolicy;
 import dev.onelsey.bedrockpassport.integration.GeyserPendingSessionBridge;
 import dev.onelsey.bedrockpassport.integration.ServerLoginReadTimeoutGuard;
 import dev.onelsey.bedrockpassport.name.NamePolicy;
@@ -20,6 +21,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     private IdentityRepository repository;
     private IdentityGate gate;
     private FloodgateIdentityBridge floodgateBridge;
+    private FloodgateSkinPolicy skinPolicy;
     private SessionGuard sessionGuard;
 
     @Override
@@ -57,6 +59,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         SessionGuard nextSessionGuard = null;
         IdentityGate nextGate = null;
         FloodgateIdentityBridge nextFloodgateBridge = null;
+        FloodgateSkinPolicy nextSkinPolicy = null;
 
         try {
             boolean caseInsensitiveNames = getConfig().getBoolean("security.case-insensitive-bedrock-names", true);
@@ -92,10 +95,17 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     duplicateLoginMessage,
                     pendingReservationSeconds
             );
+            boolean skinsRestorerPresent = getServer().getPluginManager().isPluginEnabled("SkinsRestorer");
+            nextSkinPolicy = new FloodgateSkinPolicy(
+                    getConfig().getString("skins.policy", "preserve"),
+                    skinsRestorerPresent,
+                    getLogger()
+            );
+            nextSkinPolicy.register();
             GateMessages messages = new GateMessages(
-                    getConfig().getString("form.title", "BedrockPassport"),
-                    getConfig().getString("form.text", "Choose the Java username you want to use on this server."),
-                    getConfig().getString("form.input-label", "Java username"),
+                    getConfig().getString("form.title", "§l§bBedrockPassport"),
+                    getConfig().getString("form.text", "§fChoose the Java account you want to use.\n§7Authentication still happens on the server after this step."),
+                    getConfig().getString("form.input-label", "§bJava username"),
                     getConfig().getString("form.input-placeholder", "Example: Onelsey"),
                     getConfig().getString("form.invalid-name", "Use 3-16 characters: A-Z, a-z, 0-9 and _."),
                     getConfig().getString("form.name-taken", "That account is already saved in this Passport."),
@@ -104,19 +114,19 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     getConfig().getString("form.passport-in-use", "This Bedrock/Xbox account already has a pending Passport session."),
                     getConfig().getString("form.internal-error", "BedrockPassport could not save your account. Please reconnect."),
                     getConfig().getString("form.timeout", "You did not choose an account in time. Reconnect and try again."),
-                    getConfig().getString("selector.title", "BedrockPassport"),
-                    getConfig().getString("selector.text", "Choose the server account you want to use."),
-                    getConfig().getString("selector.last-used-suffix", "  (last used)"),
-                    getConfig().getString("selector.add-account", "+ Add account"),
-                    getConfig().getString("selector.manage-accounts", "Manage accounts"),
-                    getConfig().getString("manage.title", "BedrockPassport accounts"),
-                    getConfig().getString("manage.text", "Removing an account only removes it from this Bedrock Passport. Server data and authentication records are not deleted."),
-                    getConfig().getString("manage.remove-prefix", "Remove: "),
-                    getConfig().getString("manage.back", "Back"),
-                    getConfig().getString("manage.confirm-title", "Remove account"),
-                    getConfig().getString("manage.confirm-text", "Remove %account% from this Bedrock Passport? Server data and passwords are not deleted."),
-                    getConfig().getString("manage.confirm-button", "Remove from Passport"),
-                    getConfig().getString("manage.cancel-button", "Cancel")
+                    getConfig().getString("selector.title", "§l§bBedrockPassport"),
+                    getConfig().getString("selector.text", "§fChoose your server account.\n§7The last used account is marked with §a✓§7."),
+                    getConfig().getString("selector.last-used-suffix", " §a✓"),
+                    getConfig().getString("selector.add-account", "§a＋ Add account"),
+                    getConfig().getString("selector.manage-accounts", "§e⚙ Manage accounts"),
+                    getConfig().getString("manage.title", "§l§bPassport accounts"),
+                    getConfig().getString("manage.text", "§fManage saved account shortcuts.\n§7Removing one does not delete server data or passwords."),
+                    getConfig().getString("manage.remove-prefix", "§c✕ "),
+                    getConfig().getString("manage.back", "§b← Back"),
+                    getConfig().getString("manage.confirm-title", "§l§cRemove account"),
+                    getConfig().getString("manage.confirm-text", "§fRemove %account% from this Bedrock Passport?\n§7Server data and passwords are not deleted."),
+                    getConfig().getString("manage.confirm-button", "§cRemove"),
+                    getConfig().getString("manage.cancel-button", "§bCancel")
             );
             nextGate = new IdentityGate(
                     nextRepository,
@@ -134,7 +144,8 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     nextGate,
                     messages,
                     getLogger(),
-                    new ServerLoginReadTimeoutGuard(suspendServerLoginReadTimeout)
+                    new ServerLoginReadTimeoutGuard(suspendServerLoginReadTimeout),
+                    nextSkinPolicy
             );
             nextFloodgateBridge.register();
 
@@ -142,11 +153,13 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             sessionGuard = nextSessionGuard;
             gate = nextGate;
             floodgateBridge = nextFloodgateBridge;
+            skinPolicy = nextSkinPolicy;
 
             getLogger().info("BedrockPassport enabled. Geyser pending-session bridge capability check passed.");
             getLogger().info("BedrockPassport account UUID mode: " + uuidResolver.mode() + ".");
             getLogger().info("BedrockPassport name collision mode: " + nameCollisionPolicy.mode() + ".");
             getLogger().info("BedrockPassport first-session-wins: " + firstSessionWins + ".");
+            getLogger().info("BedrockPassport skin policy: " + nextSkinPolicy.policyName() + "; SkinsRestorer detected: " + nextSkinPolicy.skinsRestorerPresent() + ".");
             getLogger().info("BedrockPassport saved identities are convenience shortcuts, not ownership claims.");
             getLogger().info("BedrockPassport handles identity only. Password/login/register remains the responsibility of the server authentication plugin.");
         } catch (Throwable exception) {
@@ -155,6 +168,9 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             }
             if (nextGate != null) {
                 nextGate.close();
+            }
+            if (nextSkinPolicy != null) {
+                nextSkinPolicy.close();
             }
             if (nextSessionGuard != null) {
                 nextSessionGuard.close();
@@ -195,11 +211,13 @@ public final class BedrockPassportPlugin extends JavaPlugin {
 
     private synchronized void stopRuntime() {
         FloodgateIdentityBridge oldBridge = floodgateBridge;
+        FloodgateSkinPolicy oldSkinPolicy = skinPolicy;
         IdentityGate oldGate = gate;
         SessionGuard oldGuard = sessionGuard;
         IdentityRepository oldRepository = repository;
 
         floodgateBridge = null;
+        skinPolicy = null;
         gate = null;
         sessionGuard = null;
         repository = null;
@@ -210,6 +228,9 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         if (oldGate != null) {
             oldGate.close();
         }
+        if (oldSkinPolicy != null) {
+            oldSkinPolicy.close();
+        }
         if (oldGuard != null) {
             oldGuard.close();
         }
@@ -219,7 +240,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     }
 
     public boolean runtimeReady() {
-        return repository != null && gate != null && floodgateBridge != null && sessionGuard != null;
+        return repository != null && gate != null && floodgateBridge != null && skinPolicy != null && sessionGuard != null;
     }
 
     public int activeSelectionCount() {
@@ -235,6 +256,16 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     public int pendingAdmissionCount() {
         SessionGuard current = sessionGuard;
         return current == null ? 0 : current.pendingAdmissionCount();
+    }
+
+    public String skinPolicyName() {
+        FloodgateSkinPolicy current = skinPolicy;
+        return current == null ? "inactive" : current.policyName();
+    }
+
+    public boolean skinsRestorerPresent() {
+        FloodgateSkinPolicy current = skinPolicy;
+        return current != null && current.skinsRestorerPresent();
     }
 
     public SessionGuard.SessionSnapshot sessionSnapshot(String javaName) {

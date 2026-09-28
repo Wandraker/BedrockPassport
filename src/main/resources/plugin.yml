@@ -8,6 +8,8 @@ description: Persistent Java identities for Bedrock players using Geyser and Flo
 depend:
   - Geyser-Spigot
   - floodgate
+softdepend:
+  - SkinsRestorer
 folia-supported: true
 libraries:
   - org.xerial:sqlite-jdbc:3.50.3.0
