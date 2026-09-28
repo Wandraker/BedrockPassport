@@ -330,6 +330,10 @@ public final class IdentityGate implements AutoCloseable {
         sessionGuard.releaseBedrockReservation(javaUuid, xuid);
     }
 
+    public int activeSelectionCount() {
+        return active.size();
+    }
+
     private void reopenHomeAfterClose(GateState state, long screen) {
         if (!state.claimAction(screen)) {
             return;

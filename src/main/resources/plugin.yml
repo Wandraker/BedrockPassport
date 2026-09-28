@@ -11,3 +11,13 @@ depend:
 folia-supported: true
 libraries:
   - org.xerial:sqlite-jdbc:3.50.3.0
+commands:
+  bedrockpassport:
+    description: BedrockPassport administration
+    usage: /bedrockpassport <status|reload|who>
+    aliases: [bp]
+    permission: bedrockpassport.admin
+permissions:
+  bedrockpassport.admin:
+    description: Allows BedrockPassport administration commands
+    default: op

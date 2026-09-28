@@ -1,3 +1,4 @@
+config-version: 1
 identity:
   inactivity-timeout-seconds: 60
   max-accounts-per-xuid: 3
@@ -15,7 +16,7 @@ form:
   input-label: 'Java username'
   input-placeholder: 'Example: Onelsey'
   invalid-name: 'Use 3-16 characters: A-Z, a-z, 0-9 and _.'
-  name-taken: 'That username is already assigned to another Bedrock Passport.'
+  name-taken: 'That account is already saved in this Passport.'
   limit-reached: 'Your Bedrock Passport has reached its account limit.'
   account-in-use: 'That server account is already online.'
   passport-in-use: 'This Bedrock/Xbox account already has a pending Passport session.'

@@ -50,6 +50,9 @@ public final class IdentityRepository implements AutoCloseable {
 
         List<String> columns = tableColumns("identities");
         if (columns.contains("id") && columns.contains("name_key") && columns.contains("java_uuid") && columns.contains("uuid_mode")) {
+            if (hasUniqueIndexExactly("name_key") && !hasUniqueIndexExactly("xuid", "name_key")) {
+                migrateGlobalNameOwnershipSchema();
+            }
             createIndexes();
             rebuildNameKeys();
             return;
@@ -87,6 +90,49 @@ public final class IdentityRepository implements AutoCloseable {
             }
         }
         return columns;
+    }
+
+    private boolean hasUniqueIndexExactly(String... expectedColumns) throws SQLException {
+        try (Statement statement = connection.createStatement(); ResultSet indexes = statement.executeQuery("PRAGMA index_list(identities)")) {
+            while (indexes.next()) {
+                if (indexes.getInt("unique") != 1) {
+                    continue;
+                }
+                String indexName = indexes.getString("name");
+                List<String> columns = new ArrayList<>();
+                try (Statement infoStatement = connection.createStatement(); ResultSet info = infoStatement.executeQuery("PRAGMA index_info('" + indexName.replace("'", "''") + "')")) {
+                    while (info.next()) {
+                        columns.add(info.getString("name"));
+                    }
+                }
+                if (columns.equals(List.of(expectedColumns))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void migrateGlobalNameOwnershipSchema() throws SQLException {
+        boolean previousAutoCommit = connection.getAutoCommit();
+        connection.setAutoCommit(false);
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("DROP INDEX IF EXISTS identities_xuid_last_used_idx");
+            statement.execute("DROP INDEX IF EXISTS identities_game_name_idx");
+            statement.execute("DROP INDEX IF EXISTS identities_name_key_idx");
+            statement.execute("DROP INDEX IF EXISTS identities_xuid_name_key_uq");
+            statement.execute("ALTER TABLE identities RENAME TO identities_legacy_global_name_owner");
+            createCurrentSchema(statement);
+            statement.execute("INSERT INTO identities(id, xuid, game_name, name_key, java_uuid, uuid_mode, created_at, last_used) " +
+                    "SELECT id, xuid, game_name, name_key, java_uuid, uuid_mode, created_at, last_used FROM identities_legacy_global_name_owner");
+            statement.execute("DROP TABLE identities_legacy_global_name_owner");
+            connection.commit();
+        } catch (SQLException exception) {
+            connection.rollback();
+            throw exception;
+        } finally {
+            connection.setAutoCommit(previousAutoCommit);
+        }
     }
 
     private void migrateLegacySingleIdentitySchema() throws SQLException {
@@ -139,7 +185,7 @@ public final class IdentityRepository implements AutoCloseable {
                 "id INTEGER PRIMARY KEY AUTOINCREMENT," +
                 "xuid TEXT NOT NULL," +
                 "game_name TEXT NOT NULL," +
-                "name_key TEXT NOT NULL UNIQUE," +
+                "name_key TEXT NOT NULL," +
                 "java_uuid TEXT," +
                 "uuid_mode TEXT," +
                 "created_at INTEGER NOT NULL," +
@@ -155,7 +201,9 @@ public final class IdentityRepository implements AutoCloseable {
     }
 
     private void createIndexes(Statement statement) throws SQLException {
+        statement.execute("CREATE UNIQUE INDEX IF NOT EXISTS identities_xuid_name_key_uq ON identities(xuid, name_key)");
         statement.execute("CREATE INDEX IF NOT EXISTS identities_xuid_last_used_idx ON identities(xuid, last_used DESC, id ASC)");
+        statement.execute("CREATE INDEX IF NOT EXISTS identities_name_key_idx ON identities(name_key)");
         statement.execute("CREATE INDEX IF NOT EXISTS identities_game_name_idx ON identities(game_name)");
     }
 
@@ -163,15 +211,17 @@ public final class IdentityRepository implements AutoCloseable {
         Map<Long, String> targets = new HashMap<>();
         Map<String, String> owners = new HashMap<>();
         boolean alreadyCurrent = true;
-        try (Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery("SELECT id, game_name, name_key FROM identities ORDER BY id")) {
+        try (Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery("SELECT id, xuid, game_name, name_key FROM identities ORDER BY id")) {
             while (result.next()) {
                 long id = result.getLong("id");
+                String xuid = result.getString("xuid");
                 String gameName = result.getString("game_name");
                 String target = nameCollisionPolicy.key(gameName);
-                String previous = owners.putIfAbsent(target, gameName);
+                String ownershipKey = xuid + '\u0000' + target;
+                String previous = owners.putIfAbsent(ownershipKey, gameName);
                 if (previous != null) {
                     throw new SQLException("BedrockPassport cannot enable " + nameCollisionPolicy.mode() +
-                            " name matching because existing identities conflict: " + previous + " and " + gameName);
+                            " name matching because one Passport contains conflicting identities: " + previous + " and " + gameName);
                 }
                 targets.put(id, target);
                 if (!target.equals(result.getString("name_key"))) {
@@ -294,7 +344,7 @@ public final class IdentityRepository implements AutoCloseable {
             if (existing.isPresent()) {
                 return new ClaimResult(ClaimResult.Status.EXISTING, existing.get());
             }
-            return new ClaimResult(ClaimResult.Status.NAME_TAKEN, null);
+            throw exception;
         }
     }
 

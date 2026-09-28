@@ -7,6 +7,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.HandlerList;
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -124,6 +125,68 @@ public final class SessionGuard implements Listener, AutoCloseable {
         }
     }
 
+
+    public int trackedSessionCount() {
+        synchronized (lock) {
+            cleanupExpiredLocked(System.nanoTime());
+            return activeByUuid.size() + pendingBedrockByUuid.size() + pendingJavaByUuid.size();
+        }
+    }
+
+    public int pendingAdmissionCount() {
+        synchronized (lock) {
+            cleanupExpiredLocked(System.nanoTime());
+            return pendingBedrockByUuid.size() + pendingJavaByUuid.size();
+        }
+    }
+
+    public SessionSnapshot findByJavaName(String javaName) {
+        if (javaName == null || javaName.isBlank()) {
+            return null;
+        }
+        String key = nameCollisionPolicy.key(javaName);
+        synchronized (lock) {
+            cleanupExpiredLocked(System.nanoTime());
+            for (ActiveSession active : activeByUuid.values()) {
+                if (active.nameKey().equals(key)) {
+                    return new SessionSnapshot(
+                            active.name(),
+                            active.uuid(),
+                            active.bedrock(),
+                            active.xuid(),
+                            active.bedrockUsername(),
+                            "ONLINE"
+                    );
+                }
+            }
+            for (PendingBedrock pending : pendingBedrockByUuid.values()) {
+                if (pending.nameKey().equals(key)) {
+                    return new SessionSnapshot(
+                            pending.name(),
+                            pending.uuid(),
+                            true,
+                            pending.xuid(),
+                            null,
+                            "BEDROCK_PENDING"
+                    );
+                }
+            }
+            for (PendingJava pending : pendingJavaByUuid.values()) {
+                if (pending.nameKey().equals(key)) {
+                    return new SessionSnapshot(
+                            pending.name(),
+                            pending.uuid(),
+                            false,
+                            null,
+                            null,
+                            "JAVA_PENDING"
+                    );
+                }
+            }
+            return null;
+        }
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPreLoginProtect(AsyncPlayerPreLoginEvent event) {
         if (!enabled || event.getLoginResult() != AsyncPlayerPreLoginEvent.Result.ALLOWED) {
@@ -161,7 +224,19 @@ public final class SessionGuard implements Listener, AutoCloseable {
             PendingBedrock pending = pendingBedrockByUuid.get(event.getUniqueId());
             if (pending != null || hasPendingBedrockExactNameLocked(event.getName())) {
                 event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, Component.text(duplicateLoginMessage));
+                return;
             }
+
+            long now = System.nanoTime();
+            pendingJavaByUuid.put(
+                    event.getUniqueId(),
+                    new PendingJava(
+                            event.getUniqueId(),
+                            event.getName(),
+                            nameCollisionPolicy.key(event.getName()),
+                            now + pendingReservationNanos
+                    )
+            );
         }
     }
 
@@ -179,21 +254,9 @@ public final class SessionGuard implements Listener, AutoCloseable {
             return;
         }
         if (event.getLoginResult() != AsyncPlayerPreLoginEvent.Result.ALLOWED) {
-            return;
-        }
-
-        synchronized (lock) {
-            long now = System.nanoTime();
-            cleanupExpiredLocked(now);
-            pendingJavaByUuid.put(
-                    event.getUniqueId(),
-                    new PendingJava(
-                            event.getUniqueId(),
-                            event.getName(),
-                            nameCollisionPolicy.key(event.getName()),
-                            now + pendingReservationNanos
-                    )
-            );
+            synchronized (lock) {
+                pendingJavaByUuid.remove(event.getUniqueId());
+            }
         }
     }
 
@@ -213,7 +276,8 @@ public final class SessionGuard implements Listener, AutoCloseable {
         FloodgatePlayer floodgatePlayer = currentFloodgatePlayer(uuid, name);
         boolean bedrock = floodgatePlayer != null;
         String xuid = bedrock ? floodgatePlayer.getXuid() : null;
-        ActiveSession active = new ActiveSession(uuid, name, nameCollisionPolicy.key(name), bedrock, xuid, player);
+        String bedrockUsername = bedrock ? floodgatePlayer.getUsername() : null;
+        ActiveSession active = new ActiveSession(uuid, name, nameCollisionPolicy.key(name), bedrock, xuid, bedrockUsername, player);
 
         synchronized (lock) {
             cleanupExpiredLocked(System.nanoTime());
@@ -334,6 +398,7 @@ public final class SessionGuard implements Listener, AutoCloseable {
 
     @Override
     public void close() {
+        HandlerList.unregisterAll(this);
         cleanupExecutor.shutdownNow();
         synchronized (lock) {
             activeByUuid.clear();
@@ -345,13 +410,31 @@ public final class SessionGuard implements Listener, AutoCloseable {
         }
     }
 
-    private record ActiveSession(UUID uuid, String name, String nameKey, boolean bedrock, String xuid, Player player) {
+    private record ActiveSession(
+            UUID uuid,
+            String name,
+            String nameKey,
+            boolean bedrock,
+            String xuid,
+            String bedrockUsername,
+            Player player
+    ) {
     }
 
     private record PendingBedrock(UUID uuid, String name, String nameKey, String xuid, long expiresAtNanos) {
     }
 
     private record PendingJava(UUID uuid, String name, String nameKey, long expiresAtNanos) {
+    }
+
+    public record SessionSnapshot(
+            String javaName,
+            UUID javaUuid,
+            boolean bedrock,
+            String xuid,
+            String bedrockUsername,
+            String state
+    ) {
     }
 
     public enum ReservationResult {

@@ -1,15 +1,18 @@
 package dev.onelsey.bedrockpassport;
 
+import dev.onelsey.bedrockpassport.command.BedrockPassportAdminCommand;
+import dev.onelsey.bedrockpassport.config.ConfigMigrator;
 import dev.onelsey.bedrockpassport.data.IdentityRepository;
 import dev.onelsey.bedrockpassport.gate.GateMessages;
 import dev.onelsey.bedrockpassport.gate.IdentityGate;
 import dev.onelsey.bedrockpassport.identity.JavaUuidResolver;
 import dev.onelsey.bedrockpassport.integration.FloodgateIdentityBridge;
-import dev.onelsey.bedrockpassport.integration.ServerLoginReadTimeoutGuard;
 import dev.onelsey.bedrockpassport.integration.GeyserPendingSessionBridge;
+import dev.onelsey.bedrockpassport.integration.ServerLoginReadTimeoutGuard;
 import dev.onelsey.bedrockpassport.name.NamePolicy;
 import dev.onelsey.bedrockpassport.security.NameCollisionPolicy;
 import dev.onelsey.bedrockpassport.security.SessionGuard;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -22,13 +25,38 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        ConfigMigrator.MigrationResult migration = ConfigMigrator.migrate(this);
+        if (migration.changed()) {
+            getLogger().info("Migrated BedrockPassport config schema " + migration.previousVersion() + " -> " + migration.currentVersion() + ".");
+        }
         getDataFolder().mkdirs();
 
-        Plugin geyserPlugin = getServer().getPluginManager().getPlugin("Geyser-Spigot");
-        if (geyserPlugin == null || !geyserPlugin.isEnabled()) {
-            failEnable("Geyser-Spigot is required and must be enabled before BedrockPassport.", null);
+        PluginCommand command = getCommand("bedrockpassport");
+        if (command == null) {
+            failEnable("BedrockPassport command registration is missing from plugin.yml.", null);
             return;
         }
+        BedrockPassportAdminCommand adminCommand = new BedrockPassportAdminCommand(this);
+        command.setExecutor(adminCommand);
+        command.setTabCompleter(adminCommand);
+
+        try {
+            startRuntime();
+        } catch (Throwable exception) {
+            failEnable("BedrockPassport could not initialize its Geyser/Floodgate identity bridge.", exception);
+        }
+    }
+
+    private void startRuntime() throws Exception {
+        Plugin geyserPlugin = getServer().getPluginManager().getPlugin("Geyser-Spigot");
+        if (geyserPlugin == null || !geyserPlugin.isEnabled()) {
+            throw new IllegalStateException("Geyser-Spigot is required and must be enabled before BedrockPassport");
+        }
+
+        IdentityRepository nextRepository = null;
+        SessionGuard nextSessionGuard = null;
+        IdentityGate nextGate = null;
+        FloodgateIdentityBridge nextFloodgateBridge = null;
 
         try {
             boolean caseInsensitiveNames = getConfig().getBoolean("security.case-insensitive-bedrock-names", true);
@@ -39,18 +67,17 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             );
             long inactivityTimeoutSeconds = getConfig().getLong("identity.inactivity-timeout-seconds", 60L);
             long pendingReservationSeconds = getConfig().getLong("security.pending-reservation-seconds", 45L);
-            boolean legacySuspendReadTimeout = getConfig().getBoolean("compatibility.suspend-backend-read-timeout", true);
             boolean suspendGeyserDownstreamReadTimeout = getConfig().getBoolean(
                     "compatibility.suspend-geyser-downstream-read-timeout",
-                    legacySuspendReadTimeout
+                    true
             );
             boolean suspendServerLoginReadTimeout = getConfig().getBoolean(
                     "compatibility.suspend-server-login-read-timeout",
-                    legacySuspendReadTimeout
+                    true
             );
 
             NameCollisionPolicy nameCollisionPolicy = new NameCollisionPolicy(caseInsensitiveNames);
-            repository = new IdentityRepository(getDataFolder().toPath().resolve("passport.db"), nameCollisionPolicy);
+            nextRepository = new IdentityRepository(getDataFolder().toPath().resolve("passport.db"), nameCollisionPolicy);
             GeyserPendingSessionBridge geyserBridge = new GeyserPendingSessionBridge(geyserPlugin, suspendGeyserDownstreamReadTimeout);
             NamePolicy namePolicy = new NamePolicy(
                     getConfig().getInt("identity.min-name-length", 3),
@@ -58,7 +85,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     getConfig().getString("identity.name-pattern", "^[A-Za-z0-9_]+$")
             );
             JavaUuidResolver uuidResolver = new JavaUuidResolver(getServer());
-            sessionGuard = new SessionGuard(
+            nextSessionGuard = new SessionGuard(
                     this,
                     firstSessionWins,
                     nameCollisionPolicy,
@@ -71,7 +98,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     getConfig().getString("form.input-label", "Java username"),
                     getConfig().getString("form.input-placeholder", "Example: Onelsey"),
                     getConfig().getString("form.invalid-name", "Use 3-16 characters: A-Z, a-z, 0-9 and _."),
-                    getConfig().getString("form.name-taken", "That username is already assigned to another Bedrock Passport."),
+                    getConfig().getString("form.name-taken", "That account is already saved in this Passport."),
                     getConfig().getString("form.limit-reached", "Your Bedrock Passport has reached its account limit."),
                     getConfig().getString("form.account-in-use", "That server account is already online."),
                     getConfig().getString("form.passport-in-use", "This Bedrock/Xbox account already has a pending Passport session."),
@@ -91,54 +118,128 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     getConfig().getString("manage.confirm-button", "Remove from Passport"),
                     getConfig().getString("manage.cancel-button", "Cancel")
             );
-            gate = new IdentityGate(
-                    repository,
+            nextGate = new IdentityGate(
+                    nextRepository,
                     geyserBridge,
                     namePolicy,
                     uuidResolver,
-                    sessionGuard,
+                    nextSessionGuard,
                     messages,
                     getConfig().getInt("identity.max-accounts-per-xuid", 3),
                     inactivityTimeoutSeconds,
                     getConfig().getLong("compatibility.holding-world-init-timeout-seconds", 10L),
                     getConfig().getLong("compatibility.form-transition-delay-millis", 250L)
             );
-            floodgateBridge = new FloodgateIdentityBridge(
-                    gate,
+            nextFloodgateBridge = new FloodgateIdentityBridge(
+                    nextGate,
                     messages,
                     getLogger(),
                     new ServerLoginReadTimeoutGuard(suspendServerLoginReadTimeout)
             );
-            floodgateBridge.register();
+            nextFloodgateBridge.register();
+
+            repository = nextRepository;
+            sessionGuard = nextSessionGuard;
+            gate = nextGate;
+            floodgateBridge = nextFloodgateBridge;
 
             getLogger().info("BedrockPassport enabled. Geyser pending-session bridge capability check passed.");
             getLogger().info("BedrockPassport account UUID mode: " + uuidResolver.mode() + ".");
             getLogger().info("BedrockPassport name collision mode: " + nameCollisionPolicy.mode() + ".");
             getLogger().info("BedrockPassport first-session-wins: " + firstSessionWins + ".");
+            getLogger().info("BedrockPassport saved identities are convenience shortcuts, not ownership claims.");
             getLogger().info("BedrockPassport handles identity only. Password/login/register remains the responsibility of the server authentication plugin.");
         } catch (Throwable exception) {
-            failEnable("BedrockPassport could not initialize its Geyser/Floodgate identity bridge.", exception);
+            if (nextFloodgateBridge != null) {
+                nextFloodgateBridge.close();
+            }
+            if (nextGate != null) {
+                nextGate.close();
+            }
+            if (nextSessionGuard != null) {
+                nextSessionGuard.close();
+            }
+            if (nextRepository != null) {
+                nextRepository.close();
+            }
+            throw exception;
+        }
+    }
+
+    public synchronized ReloadResult reloadPassport() {
+        int selectors = activeSelectionCount();
+        int pendingAdmissions = pendingAdmissionCount();
+        if (selectors > 0 || pendingAdmissions > 0) {
+            return new ReloadResult(false,
+                    "BedrockPassport reload refused: " + selectors + " selector(s) and " + pendingAdmissions + " pending login(s) are still active.");
+        }
+
+        try {
+            ConfigMigrator.MigrationResult migration = ConfigMigrator.migrate(this);
+            stopRuntime();
+            startRuntime();
+            String suffix = migration.changed()
+                    ? " Config schema migrated " + migration.previousVersion() + " -> " + migration.currentVersion() + "."
+                    : "";
+            return new ReloadResult(true, "BedrockPassport reloaded successfully." + suffix);
+        } catch (Throwable exception) {
+            getLogger().severe("BedrockPassport reload failed: " + exception.getClass().getSimpleName() + ": " + exception.getMessage());
+            return new ReloadResult(false, "BedrockPassport reload failed. Check the console; runtime is not active until reload succeeds or the server restarts.");
         }
     }
 
     @Override
     public void onDisable() {
-        if (floodgateBridge != null) {
-            floodgateBridge.close();
+        stopRuntime();
+    }
+
+    private synchronized void stopRuntime() {
+        FloodgateIdentityBridge oldBridge = floodgateBridge;
+        IdentityGate oldGate = gate;
+        SessionGuard oldGuard = sessionGuard;
+        IdentityRepository oldRepository = repository;
+
+        floodgateBridge = null;
+        gate = null;
+        sessionGuard = null;
+        repository = null;
+
+        if (oldBridge != null) {
+            oldBridge.close();
         }
-        if (gate != null) {
-            gate.close();
+        if (oldGate != null) {
+            oldGate.close();
         }
-        if (sessionGuard != null) {
-            sessionGuard.close();
+        if (oldGuard != null) {
+            oldGuard.close();
         }
-        if (repository != null) {
-            try {
-                repository.close();
-            } catch (Exception exception) {
-                getLogger().warning("Could not close passport database cleanly: " + exception.getMessage());
-            }
+        if (oldRepository != null) {
+            oldRepository.close();
         }
+    }
+
+    public boolean runtimeReady() {
+        return repository != null && gate != null && floodgateBridge != null && sessionGuard != null;
+    }
+
+    public int activeSelectionCount() {
+        IdentityGate current = gate;
+        return current == null ? 0 : current.activeSelectionCount();
+    }
+
+    public int trackedSessionCount() {
+        SessionGuard current = sessionGuard;
+        return current == null ? 0 : current.trackedSessionCount();
+    }
+
+    public int pendingAdmissionCount() {
+        SessionGuard current = sessionGuard;
+        return current == null ? 0 : current.pendingAdmissionCount();
+    }
+
+    public SessionGuard.SessionSnapshot sessionSnapshot(String javaName) {
+        SessionGuard current = sessionGuard;
+        return current == null ? null : current.findByJavaName(javaName);
     }
 
     private void failEnable(String message, Throwable exception) {
@@ -147,5 +248,8 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             getLogger().severe(exception.getClass().getSimpleName() + ": " + exception.getMessage());
         }
         getServer().getPluginManager().disablePlugin(this);
+    }
+
+    public record ReloadResult(boolean success, String message) {
     }
 }
