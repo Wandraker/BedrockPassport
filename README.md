@@ -16,7 +16,7 @@ BedrockPassport is **not** an authentication plugin. Saved accounts are convenie
 - `online-mode=false`
 - SkinsRestorer is optional
 
-The 1.0.1 compatibility baseline is Geyser 2.11.3-SNAPSHOT b1247 and Floodgate 2.2.5-SNAPSHOT b141. BedrockPassport checks the Geyser pending-session bridge at startup and fails closed if a required integration point is unavailable.
+The 1.0.2 compatibility baseline is Geyser 2.11.3-SNAPSHOT b1247 and Floodgate 2.2.5-SNAPSHOT b141. BedrockPassport checks the Geyser pending-session bridge at startup and fails closed if a required integration point is unavailable.
 
 ## Player flow
 
@@ -91,11 +91,11 @@ With `security.first-session-wins: true`, the connection that already owns or ha
 - A second connection from the same XUID cannot create another simultaneous Passport flow.
 - Java-to-Java duplicate-login behavior remains the responsibility of the server and its authentication stack.
 
-Pending reservations expire automatically after `security.pending-reservation-seconds`.
+Geyser disconnects release pending Bedrock reservations immediately, including disconnects during an authentication plugin's pre-join/configuration flow. `security.pending-reservation-seconds` remains a safety-net expiry for abnormal cases where no disconnect event is observed.
 
 ## Skin handling
 
-BedrockPassport 1.0.1 keeps skin handling separate from account trust. The selected Java identity is no longer exposed to authentication plugins as a trusted Floodgate account link.
+BedrockPassport 1.0.2 keeps skin handling separate from account trust and adds a post-join SkinsRestorer restore safety net for Passport-selected identities. The selected Java identity is no longer exposed to authentication plugins as a trusted Floodgate account link.
 
 The default policy is:
 
@@ -110,8 +110,9 @@ skins:
 - Floodgate's synthetic default Java placeholder skin is not treated as a real player skin;
 - if there is no meaningful current skin, BedrockPassport allows the final skin from the normal Floodgate pipeline to apply;
 - when SkinsRestorer is installed, its Floodgate listener may provide the selected Java identity's stored/premium/default skin before BedrockPassport makes the final preserve/apply decision;
+- after a Passport-selected player reaches Bukkit join, BedrockPassport asks the public SkinsRestorer API for the skin explicitly stored for that selected Java UUID and re-applies it when present, covering reconnects where the earlier Floodgate skin timing did not restore it;
 - when SkinsRestorer has no replacement skin, the incoming Bedrock/Xbox skin can be used as the fallback;
-- SkinsRestorer is optional and BedrockPassport does not depend on its internal classes.
+- SkinsRestorer is optional; the compatibility bridge is runtime-discovered and BedrockPassport does not depend on SkinsRestorer internal implementation classes.
 
 Available policies:
 
@@ -119,7 +120,7 @@ Available policies:
 - `refresh` — always allow the final Floodgate/SkinsRestorer skin to replace the current one.
 - `off` — BedrockPassport does not alter Floodgate skin event cancellation.
 
-SkinsRestorer 15.12.6 is part of the 1.0.1 integration baseline, but it is not required.
+SkinsRestorer 15.12.6 is part of the 1.0.2 integration baseline, but it is not required.
 
 ## Name matching
 

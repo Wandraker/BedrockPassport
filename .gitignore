@@ -8,3 +8,5 @@ out/
 *.db
 *.db-shm
 *.db-wal
+
+_internal/

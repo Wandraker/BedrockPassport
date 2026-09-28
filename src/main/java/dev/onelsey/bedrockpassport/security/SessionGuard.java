@@ -125,6 +125,22 @@ public final class SessionGuard implements Listener, AutoCloseable {
         }
     }
 
+    public void releasePendingBedrockByXuid(String xuid) {
+        if (!enabled || xuid == null || xuid.isBlank()) {
+            return;
+        }
+        synchronized (lock) {
+            UUID javaUuid = pendingBedrockByXuid.remove(xuid);
+            if (javaUuid == null) {
+                return;
+            }
+            PendingBedrock reservation = pendingBedrockByUuid.get(javaUuid);
+            if (reservation != null && reservation.xuid().equals(xuid)) {
+                pendingBedrockByUuid.remove(javaUuid, reservation);
+            }
+        }
+    }
+
 
     public int trackedSessionCount() {
         synchronized (lock) {

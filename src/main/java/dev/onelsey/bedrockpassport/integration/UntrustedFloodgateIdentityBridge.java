@@ -124,6 +124,17 @@ public final class UntrustedFloodgateIdentityBridge implements Listener, AutoClo
         }
     }
 
+    public void releasePending(String xuid) {
+        if (xuid == null || xuid.isBlank()) {
+            return;
+        }
+        pendingByJavaUuid.forEach((javaUuid, pending) -> {
+            if (xuid.equals(pending.xuid())) {
+                pendingByJavaUuid.remove(javaUuid, pending);
+            }
+        });
+    }
+
     private FloodgatePlayer replaceApiPlayer(FloodgatePlayer player) throws InvocationTargetException, IllegalAccessException {
         return (FloodgatePlayer) addPlayerMethod.invoke(api, player);
     }

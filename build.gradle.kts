@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "dev.onelsey"
-version = "1.0.1"
+version = "1.0.2"
 
 repositories {
     maven("https://repo.papermc.io/repository/maven-public/")
@@ -14,6 +14,7 @@ repositories {
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:26.2.build.129-stable")
+    compileOnly("org.geysermc.geyser:api:2.11.3-SNAPSHOT")
     compileOnly("org.geysermc.floodgate:api:2.2.5-SNAPSHOT")
     compileOnly("io.netty:netty-handler:4.2.17.Final")
 }

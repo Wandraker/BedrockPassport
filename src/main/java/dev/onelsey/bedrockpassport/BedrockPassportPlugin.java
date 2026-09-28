@@ -9,6 +9,7 @@ import dev.onelsey.bedrockpassport.identity.JavaUuidResolver;
 import dev.onelsey.bedrockpassport.integration.FloodgateIdentityBridge;
 import dev.onelsey.bedrockpassport.integration.FloodgateSkinPolicy;
 import dev.onelsey.bedrockpassport.integration.GeyserPendingSessionBridge;
+import dev.onelsey.bedrockpassport.integration.GeyserSessionLifecycleBridge;
 import dev.onelsey.bedrockpassport.integration.ServerLoginReadTimeoutGuard;
 import dev.onelsey.bedrockpassport.integration.UntrustedFloodgateIdentityBridge;
 import dev.onelsey.bedrockpassport.name.NamePolicy;
@@ -24,6 +25,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     private FloodgateIdentityBridge floodgateBridge;
     private FloodgateSkinPolicy skinPolicy;
     private UntrustedFloodgateIdentityBridge untrustedIdentityBridge;
+    private GeyserSessionLifecycleBridge geyserLifecycleBridge;
     private SessionGuard sessionGuard;
 
     @Override
@@ -63,6 +65,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         FloodgateIdentityBridge nextFloodgateBridge = null;
         FloodgateSkinPolicy nextSkinPolicy = null;
         UntrustedFloodgateIdentityBridge nextUntrustedIdentityBridge = null;
+        GeyserSessionLifecycleBridge nextGeyserLifecycleBridge = null;
 
         try {
             boolean caseInsensitiveNames = getConfig().getBoolean("security.case-insensitive-bedrock-names", true);
@@ -101,6 +104,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             );
             boolean skinsRestorerPresent = getServer().getPluginManager().isPluginEnabled("SkinsRestorer");
             nextSkinPolicy = new FloodgateSkinPolicy(
+                    this,
                     getConfig().getString("skins.policy", "preserve"),
                     skinsRestorerPresent,
                     getLogger()
@@ -153,6 +157,14 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     nextUntrustedIdentityBridge
             );
             nextFloodgateBridge.register();
+            nextGeyserLifecycleBridge = new GeyserSessionLifecycleBridge(
+                    this,
+                    nextGate,
+                    nextSessionGuard,
+                    nextSkinPolicy,
+                    nextUntrustedIdentityBridge
+            );
+            nextGeyserLifecycleBridge.register();
 
             repository = nextRepository;
             sessionGuard = nextSessionGuard;
@@ -160,6 +172,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             floodgateBridge = nextFloodgateBridge;
             skinPolicy = nextSkinPolicy;
             untrustedIdentityBridge = nextUntrustedIdentityBridge;
+            geyserLifecycleBridge = nextGeyserLifecycleBridge;
 
             getLogger().info("BedrockPassport enabled. Geyser pending-session bridge capability check passed.");
             getLogger().info("BedrockPassport account UUID mode: " + uuidResolver.mode() + ".");
@@ -170,6 +183,9 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             getLogger().info("BedrockPassport saved identities are convenience shortcuts, not ownership claims.");
             getLogger().info("BedrockPassport handles identity only. Password/login/register remains the responsibility of the server authentication plugin.");
         } catch (Throwable exception) {
+            if (nextGeyserLifecycleBridge != null) {
+                nextGeyserLifecycleBridge.close();
+            }
             if (nextFloodgateBridge != null) {
                 nextFloodgateBridge.close();
             }
@@ -223,6 +239,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         FloodgateIdentityBridge oldBridge = floodgateBridge;
         FloodgateSkinPolicy oldSkinPolicy = skinPolicy;
         UntrustedFloodgateIdentityBridge oldUntrustedIdentityBridge = untrustedIdentityBridge;
+        GeyserSessionLifecycleBridge oldGeyserLifecycleBridge = geyserLifecycleBridge;
         IdentityGate oldGate = gate;
         SessionGuard oldGuard = sessionGuard;
         IdentityRepository oldRepository = repository;
@@ -230,10 +247,14 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         floodgateBridge = null;
         skinPolicy = null;
         untrustedIdentityBridge = null;
+        geyserLifecycleBridge = null;
         gate = null;
         sessionGuard = null;
         repository = null;
 
+        if (oldGeyserLifecycleBridge != null) {
+            oldGeyserLifecycleBridge.close();
+        }
         if (oldBridge != null) {
             oldBridge.close();
         }
@@ -255,7 +276,8 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     }
 
     public boolean runtimeReady() {
-        return repository != null && gate != null && floodgateBridge != null && skinPolicy != null && untrustedIdentityBridge != null && sessionGuard != null;
+        return repository != null && gate != null && floodgateBridge != null && skinPolicy != null
+                && untrustedIdentityBridge != null && geyserLifecycleBridge != null && sessionGuard != null;
     }
 
     public int activeSelectionCount() {
