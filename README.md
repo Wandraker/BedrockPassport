@@ -16,7 +16,7 @@ BedrockPassport is **not** an authentication plugin. Saved accounts are convenie
 - `online-mode=false`
 - SkinsRestorer is optional
 
-The 1.0.0 compatibility baseline is Geyser 2.11.3-SNAPSHOT b1247 and Floodgate 2.2.5-SNAPSHOT b141. BedrockPassport checks the Geyser pending-session bridge at startup and fails closed if a required integration point is unavailable.
+The 1.0.1 compatibility baseline is Geyser 2.11.3-SNAPSHOT b1247 and Floodgate 2.2.5-SNAPSHOT b141. BedrockPassport checks the Geyser pending-session bridge at startup and fails closed if a required integration point is unavailable.
 
 ## Player flow
 
@@ -59,6 +59,27 @@ On an offline-mode server, BedrockPassport uses the same deterministic offline U
 
 BedrockPassport currently refuses to start when `online-mode=true`. Selecting a username is not sufficient proof of ownership of a Mojang/Microsoft Java account.
 
+
+## Authentication compatibility and trust
+
+BedrockPassport uses Floodgate's linked-profile transport only briefly inside the Floodgate handshake so the backend can be created with the selected Java name and offline UUID. Before Bukkit authentication plugins handle the login, BedrockPassport replaces the Floodgate player view with an untrusted Passport identity:
+
+- `getCorrectUsername()` remains the selected Java username;
+- `getCorrectUniqueId()` remains the selected Java/offline UUID;
+- Xbox username, XUID, device and input information remain the real Bedrock values;
+- `isLinked()` is `false`;
+- `getLinkedPlayer()` is `null`.
+
+This is important because a saved Passport shortcut is not proof that the Bedrock user owns the selected Java/server account. Authentication plugins must still require their normal password, registration, PIN, form or other proof.
+
+`plugin.yml` orders BedrockPassport before AlixSystem so the untrusted Floodgate view is installed at the earliest Bukkit pre-login priority before Alix's login decision. AuthMe requires no special adapter; it can continue its own authentication after the Passport identity handoff.
+
+The public AlixSystem 3.10.0 build has a separate compatibility issue with Geyser 2.11.x in its virtual-limbo Bedrock detection: that build can reference the old `org.geysermc.geyser.network.netty.ChannelWrapper` class. Current AlixSystem source checks the newer `org.geysermc.geyser.network.java.ChannelWrapper` first. BedrockPassport cannot safely patch another plugin's classloader, so an Alix build containing that upstream fix is still required.
+
+### Anti-cheat detection
+
+The untrusted handoff does not turn the player into a Java client. Floodgate still stores the player as a Bedrock/Floodgate player and can resolve the selected Java UUID through `FloodgateApi.isFloodgatePlayer(...)`. After backend login, Geyser also indexes the session by the backend Java UUID. Anti-cheats that use the official Floodgate/Geyser APIs therefore continue to identify Passport players as Bedrock. Detection based only on a username prefix or on a raw Floodgate UUID is not a supported compatibility contract.
+
 ## Session protection
 
 With `security.first-session-wins: true`, the connection that already owns or has reserved an identity keeps it.
@@ -74,7 +95,7 @@ Pending reservations expire automatically after `security.pending-reservation-se
 
 ## Skin handling
 
-BedrockPassport 1.0.0 fixes the skin conflict caused by using Floodgate linked identities for the selected Java account.
+BedrockPassport 1.0.1 keeps skin handling separate from account trust. The selected Java identity is no longer exposed to authentication plugins as a trusted Floodgate account link.
 
 The default policy is:
 
@@ -85,8 +106,9 @@ skins:
 
 `preserve` works at the Floodgate `SkinApplyEvent` after other skin listeners have had a chance to run:
 
-- if the player profile already has a valid skin, BedrockPassport preserves it;
-- if there is no current skin, BedrockPassport allows the final skin from the normal Floodgate pipeline to apply;
+- if the player profile already has a meaningful skin, BedrockPassport preserves it;
+- Floodgate's synthetic default Java placeholder skin is not treated as a real player skin;
+- if there is no meaningful current skin, BedrockPassport allows the final skin from the normal Floodgate pipeline to apply;
 - when SkinsRestorer is installed, its Floodgate listener may provide the selected Java identity's stored/premium/default skin before BedrockPassport makes the final preserve/apply decision;
 - when SkinsRestorer has no replacement skin, the incoming Bedrock/Xbox skin can be used as the fallback;
 - SkinsRestorer is optional and BedrockPassport does not depend on its internal classes.
@@ -97,7 +119,7 @@ Available policies:
 - `refresh` — always allow the final Floodgate/SkinsRestorer skin to replace the current one.
 - `off` — BedrockPassport does not alter Floodgate skin event cancellation.
 
-SkinsRestorer 15.12.6 is part of the 1.0.0 tested integration baseline, but it is not required.
+SkinsRestorer 15.12.6 is part of the 1.0.1 integration baseline, but it is not required.
 
 ## Name matching
 
@@ -212,7 +234,7 @@ Set `identity.max-accounts-per-xuid` to `0` or a negative value for no Passport-
 
 ## Compatibility note
 
-BedrockPassport does not depend on Paper, Purpur or Leaf NMS. The pre-backend holding flow uses a small capability-checked bridge to Geyser pending-session internals because the public Geyser API does not expose pending sessions before Java backend login completes.
+BedrockPassport targets Paper, Purpur and Leaf and does not depend on their NMS internals. It does not currently claim Folia support. The pre-backend holding flow uses a small capability-checked bridge to Geyser pending-session internals because the public Geyser API does not expose pending sessions before Java backend login completes.
 
 ## License
 

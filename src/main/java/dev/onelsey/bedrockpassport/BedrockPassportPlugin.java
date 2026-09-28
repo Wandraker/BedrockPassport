@@ -10,6 +10,7 @@ import dev.onelsey.bedrockpassport.integration.FloodgateIdentityBridge;
 import dev.onelsey.bedrockpassport.integration.FloodgateSkinPolicy;
 import dev.onelsey.bedrockpassport.integration.GeyserPendingSessionBridge;
 import dev.onelsey.bedrockpassport.integration.ServerLoginReadTimeoutGuard;
+import dev.onelsey.bedrockpassport.integration.UntrustedFloodgateIdentityBridge;
 import dev.onelsey.bedrockpassport.name.NamePolicy;
 import dev.onelsey.bedrockpassport.security.NameCollisionPolicy;
 import dev.onelsey.bedrockpassport.security.SessionGuard;
@@ -22,6 +23,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     private IdentityGate gate;
     private FloodgateIdentityBridge floodgateBridge;
     private FloodgateSkinPolicy skinPolicy;
+    private UntrustedFloodgateIdentityBridge untrustedIdentityBridge;
     private SessionGuard sessionGuard;
 
     @Override
@@ -60,6 +62,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         IdentityGate nextGate = null;
         FloodgateIdentityBridge nextFloodgateBridge = null;
         FloodgateSkinPolicy nextSkinPolicy = null;
+        UntrustedFloodgateIdentityBridge nextUntrustedIdentityBridge = null;
 
         try {
             boolean caseInsensitiveNames = getConfig().getBoolean("security.case-insensitive-bedrock-names", true);
@@ -88,6 +91,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     getConfig().getString("identity.name-pattern", "^[A-Za-z0-9_]+$")
             );
             JavaUuidResolver uuidResolver = new JavaUuidResolver(getServer());
+            nextUntrustedIdentityBridge = new UntrustedFloodgateIdentityBridge(this, getLogger());
             nextSessionGuard = new SessionGuard(
                     this,
                     firstSessionWins,
@@ -145,7 +149,8 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     messages,
                     getLogger(),
                     new ServerLoginReadTimeoutGuard(suspendServerLoginReadTimeout),
-                    nextSkinPolicy
+                    nextSkinPolicy,
+                    nextUntrustedIdentityBridge
             );
             nextFloodgateBridge.register();
 
@@ -154,11 +159,13 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             gate = nextGate;
             floodgateBridge = nextFloodgateBridge;
             skinPolicy = nextSkinPolicy;
+            untrustedIdentityBridge = nextUntrustedIdentityBridge;
 
             getLogger().info("BedrockPassport enabled. Geyser pending-session bridge capability check passed.");
             getLogger().info("BedrockPassport account UUID mode: " + uuidResolver.mode() + ".");
             getLogger().info("BedrockPassport name collision mode: " + nameCollisionPolicy.mode() + ".");
             getLogger().info("BedrockPassport first-session-wins: " + firstSessionWins + ".");
+            getLogger().info("BedrockPassport Floodgate identity trust: untrusted Passport handoff.");
             getLogger().info("BedrockPassport skin policy: " + nextSkinPolicy.policyName() + "; SkinsRestorer detected: " + nextSkinPolicy.skinsRestorerPresent() + ".");
             getLogger().info("BedrockPassport saved identities are convenience shortcuts, not ownership claims.");
             getLogger().info("BedrockPassport handles identity only. Password/login/register remains the responsibility of the server authentication plugin.");
@@ -171,6 +178,9 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             }
             if (nextSkinPolicy != null) {
                 nextSkinPolicy.close();
+            }
+            if (nextUntrustedIdentityBridge != null) {
+                nextUntrustedIdentityBridge.close();
             }
             if (nextSessionGuard != null) {
                 nextSessionGuard.close();
@@ -212,12 +222,14 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     private synchronized void stopRuntime() {
         FloodgateIdentityBridge oldBridge = floodgateBridge;
         FloodgateSkinPolicy oldSkinPolicy = skinPolicy;
+        UntrustedFloodgateIdentityBridge oldUntrustedIdentityBridge = untrustedIdentityBridge;
         IdentityGate oldGate = gate;
         SessionGuard oldGuard = sessionGuard;
         IdentityRepository oldRepository = repository;
 
         floodgateBridge = null;
         skinPolicy = null;
+        untrustedIdentityBridge = null;
         gate = null;
         sessionGuard = null;
         repository = null;
@@ -231,6 +243,9 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         if (oldSkinPolicy != null) {
             oldSkinPolicy.close();
         }
+        if (oldUntrustedIdentityBridge != null) {
+            oldUntrustedIdentityBridge.close();
+        }
         if (oldGuard != null) {
             oldGuard.close();
         }
@@ -240,7 +255,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     }
 
     public boolean runtimeReady() {
-        return repository != null && gate != null && floodgateBridge != null && skinPolicy != null && sessionGuard != null;
+        return repository != null && gate != null && floodgateBridge != null && skinPolicy != null && untrustedIdentityBridge != null && sessionGuard != null;
     }
 
     public int activeSelectionCount() {

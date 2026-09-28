@@ -25,6 +25,7 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
     private final HandshakeHandlers handlers;
     private final ServerLoginReadTimeoutGuard serverTimeoutGuard;
     private final FloodgateSkinPolicy skinPolicy;
+    private final UntrustedFloodgateIdentityBridge untrustedIdentityBridge;
     private int registrationId = -1;
 
     public FloodgateIdentityBridge(
@@ -32,13 +33,15 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
             GateMessages messages,
             Logger logger,
             ServerLoginReadTimeoutGuard serverTimeoutGuard,
-            FloodgateSkinPolicy skinPolicy
+            FloodgateSkinPolicy skinPolicy,
+            UntrustedFloodgateIdentityBridge untrustedIdentityBridge
     ) {
         this.gate = gate;
         this.messages = messages;
         this.logger = logger;
         this.serverTimeoutGuard = serverTimeoutGuard;
         this.skinPolicy = skinPolicy;
+        this.untrustedIdentityBridge = untrustedIdentityBridge;
         this.handlers = InstanceHolder.getHandshakeHandlers();
         if (handlers == null) {
             throw new IllegalStateException("Floodgate handshake API is unavailable");
@@ -73,6 +76,7 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
                 throw new IllegalStateException("Resolved BedrockPassport identity has no Java UUID");
             }
             data.setLinkedPlayer(LinkedPlayer.of(identity.gameName(), identity.javaUuid(), floodgateUuid));
+            untrustedIdentityBridge.prepare(data.getChannel(), xuid, floodgateUuid, identity.javaUuid(), identity.gameName());
             skinPolicy.track(xuid, identity.javaUuid(), identity.gameName());
         } catch (PassportSessionBusyException busy) {
             releaseIfSelected(xuid, identity);

@@ -6,6 +6,7 @@ import org.geysermc.floodgate.api.event.FloodgateSubscriber;
 import org.geysermc.floodgate.api.event.skin.SkinApplyEvent;
 import org.geysermc.floodgate.api.player.FloodgatePlayer;
 
+import java.lang.reflect.Field;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -19,6 +20,7 @@ public final class FloodgateSkinPolicy implements AutoCloseable {
     private final Policy policy;
     private final boolean skinsRestorerPresent;
     private final Logger logger;
+    private final SkinApplyEvent.SkinData floodgateDefaultSkin;
     private final Map<String, ManagedIdentity> managedByXuid = new ConcurrentHashMap<>();
     private FloodgateSubscriber<SkinApplyEvent> subscriber;
 
@@ -26,6 +28,7 @@ public final class FloodgateSkinPolicy implements AutoCloseable {
         this.policy = Policy.parse(configuredPolicy);
         this.skinsRestorerPresent = skinsRestorerPresent;
         this.logger = logger;
+        this.floodgateDefaultSkin = loadFloodgateDefaultSkin(logger);
     }
 
     public void register() {
@@ -58,13 +61,37 @@ public final class FloodgateSkinPolicy implements AutoCloseable {
             return;
         }
 
-        if (policy == Policy.PRESERVE && event.currentSkin() != null) {
+        SkinApplyEvent.SkinData currentSkin = event.currentSkin();
+        boolean meaningfulCurrentSkin = currentSkin != null && !sameSkin(currentSkin, floodgateDefaultSkin);
+        if (policy == Policy.PRESERVE && meaningfulCurrentSkin) {
             event.setCancelled(true);
         } else {
             event.setCancelled(false);
         }
 
         managedByXuid.remove(player.getXuid(), managed);
+    }
+
+    private static SkinApplyEvent.SkinData loadFloodgateDefaultSkin(Logger logger) {
+        try {
+            ClassLoader loader = FloodgateApi.class.getClassLoader();
+            Class<?> skinDataImpl = Class.forName("org.geysermc.floodgate.skin.SkinDataImpl", false, loader);
+            Field field = skinDataImpl.getField("DEFAULT_SKIN");
+            Object value = field.get(null);
+            if (value instanceof SkinApplyEvent.SkinData skinData) {
+                return skinData;
+            }
+        } catch (Throwable throwable) {
+            logger.fine("Could not resolve Floodgate placeholder skin: " + throwable.getMessage());
+        }
+        return null;
+    }
+
+    private static boolean sameSkin(SkinApplyEvent.SkinData first, SkinApplyEvent.SkinData second) {
+        return first != null
+                && second != null
+                && first.value().equals(second.value())
+                && first.signature().equals(second.signature());
     }
 
     private void purgeExpired() {
