@@ -39,4 +39,5 @@ manage:
 compatibility:
   holding-world-init-timeout-seconds: 10
   suspend-geyser-downstream-read-timeout: true
+  suspend-server-login-read-timeout: true
   form-transition-delay-millis: 250

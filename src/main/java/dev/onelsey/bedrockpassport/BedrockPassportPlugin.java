@@ -5,6 +5,7 @@ import dev.onelsey.bedrockpassport.gate.GateMessages;
 import dev.onelsey.bedrockpassport.gate.IdentityGate;
 import dev.onelsey.bedrockpassport.identity.JavaUuidResolver;
 import dev.onelsey.bedrockpassport.integration.FloodgateIdentityBridge;
+import dev.onelsey.bedrockpassport.integration.ServerLoginReadTimeoutGuard;
 import dev.onelsey.bedrockpassport.integration.GeyserPendingSessionBridge;
 import dev.onelsey.bedrockpassport.name.NamePolicy;
 import dev.onelsey.bedrockpassport.security.NameCollisionPolicy;
@@ -38,8 +39,15 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             );
             long inactivityTimeoutSeconds = getConfig().getLong("identity.inactivity-timeout-seconds", 60L);
             long pendingReservationSeconds = getConfig().getLong("security.pending-reservation-seconds", 45L);
-            boolean suspendGeyserDownstreamReadTimeout = getConfig().getBoolean("compatibility.suspend-geyser-downstream-read-timeout",
-                    getConfig().getBoolean("compatibility.suspend-backend-read-timeout", true));
+            boolean legacySuspendReadTimeout = getConfig().getBoolean("compatibility.suspend-backend-read-timeout", true);
+            boolean suspendGeyserDownstreamReadTimeout = getConfig().getBoolean(
+                    "compatibility.suspend-geyser-downstream-read-timeout",
+                    legacySuspendReadTimeout
+            );
+            boolean suspendServerLoginReadTimeout = getConfig().getBoolean(
+                    "compatibility.suspend-server-login-read-timeout",
+                    legacySuspendReadTimeout
+            );
 
             NameCollisionPolicy nameCollisionPolicy = new NameCollisionPolicy(caseInsensitiveNames);
             repository = new IdentityRepository(getDataFolder().toPath().resolve("passport.db"), nameCollisionPolicy);
@@ -95,7 +103,12 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     getConfig().getLong("compatibility.holding-world-init-timeout-seconds", 10L),
                     getConfig().getLong("compatibility.form-transition-delay-millis", 250L)
             );
-            floodgateBridge = new FloodgateIdentityBridge(gate, messages, getLogger());
+            floodgateBridge = new FloodgateIdentityBridge(
+                    gate,
+                    messages,
+                    getLogger(),
+                    new ServerLoginReadTimeoutGuard(suspendServerLoginReadTimeout)
+            );
             floodgateBridge.register();
 
             getLogger().info("BedrockPassport enabled. Geyser pending-session bridge capability check passed.");

@@ -97,7 +97,7 @@ BedrockPassport currently uses Floodgate's linked-player handshake override to p
 
 ## Holding-world timeout handling
 
-Geyser's Java downstream connection normally uses MCProtocolLib's 30-second read timeout. BedrockPassport can keep a Bedrock player in the Passport holding flow longer than that while forms are still active. With `compatibility.suspend-geyser-downstream-read-timeout: true`, BedrockPassport temporarily suspends the Geyser downstream `read-timeout` handler while the Passport selector is active and restores its original timeout before normal backend login continues.
+Geyser's Java downstream connection normally uses MCProtocolLib's 30-second read timeout. BedrockPassport can keep a Bedrock player in the Passport holding flow longer than that while forms are still active. Two independent 30-second read timeouts can affect the pre-backend Passport flow: MCProtocolLib's Geyser downstream timeout and the Paper-compatible server login-channel timeout. With `compatibility.suspend-geyser-downstream-read-timeout: true` and `compatibility.suspend-server-login-read-timeout: true`, BedrockPassport temporarily suspends both while the Passport selector is active and restores their original values before normal backend login continues.
 
 This makes the BedrockPassport inactivity timer authoritative during account selection. The default Passport inactivity timeout is 60 seconds, and when it expires the player receives the configured user-facing timeout message instead of a raw Netty `ReadTimeoutException`.
 
@@ -160,6 +160,7 @@ manage:
 compatibility:
   holding-world-init-timeout-seconds: 10
   suspend-geyser-downstream-read-timeout: true
+  suspend-server-login-read-timeout: true
   form-transition-delay-millis: 250
 ```
 
