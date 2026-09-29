@@ -36,7 +36,7 @@ public final class GeyserOnlineSessionBridge implements AutoCloseable {
         this.authBridge = Objects.requireNonNull(authBridge, "authBridge");
         this.gate = Objects.requireNonNull(gate, "gate");
         this.logger = Objects.requireNonNull(logger, "logger");
-        this.holdingInitTimeoutSeconds = Math.max(3L, holdingInitTimeoutSeconds);
+        this.holdingInitTimeoutSeconds = Math.max(60L, holdingInitTimeoutSeconds);
     }
 
     public void register() {
