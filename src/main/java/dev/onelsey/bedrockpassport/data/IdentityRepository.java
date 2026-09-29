@@ -35,6 +35,7 @@ public final class IdentityRepository implements AutoCloseable {
             return thread;
         });
         initialize();
+        initializeCredentialSchema();
     }
 
     private void initialize() throws SQLException {
@@ -76,6 +77,18 @@ public final class IdentityRepository implements AutoCloseable {
         }
 
         throw new SQLException("Unsupported BedrockPassport identities table schema");
+    }
+
+    private void initializeCredentialSchema() throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE IF NOT EXISTS identity_credentials(" +
+                    "identity_id INTEGER PRIMARY KEY," +
+                    "credential_format TEXT NOT NULL," +
+                    "encrypted_blob TEXT NOT NULL," +
+                    "updated_at INTEGER NOT NULL," +
+                    "FOREIGN KEY(identity_id) REFERENCES identities(id) ON DELETE CASCADE" +
+                    ")");
+        }
     }
 
     private boolean tableExists(String table) throws SQLException {
@@ -276,6 +289,26 @@ public final class IdentityRepository implements AutoCloseable {
         return submit(() -> listByXuidNow(xuid));
     }
 
+    public CompletableFuture<List<Identity>> listByXuid(String xuid, IdentityProviderType providerType) {
+        return submit(() -> listByXuidNow(xuid, providerType));
+    }
+
+    public CompletableFuture<Optional<StoredCredential>> findCredential(long identityId, String xuid) {
+        return submit(() -> findCredentialNow(identityId, xuid));
+    }
+
+    public CompletableFuture<Void> saveCredential(
+            long identityId,
+            String xuid,
+            String credentialFormat,
+            String encryptedBlob
+    ) {
+        return submit(() -> {
+            saveCredentialNow(identityId, xuid, credentialFormat, encryptedBlob);
+            return null;
+        });
+    }
+
     public CompletableFuture<ClaimResult> claim(
             String xuid,
             IdentityProviderType providerType,
@@ -313,6 +346,64 @@ public final class IdentityRepository implements AutoCloseable {
         return identities;
     }
 
+    private List<Identity> listByXuidNow(String xuid, IdentityProviderType providerType) throws SQLException {
+        List<Identity> identities = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT id, xuid, provider_type, game_name, java_uuid, uuid_mode, created_at, last_used " +
+                        "FROM identities WHERE xuid=? AND provider_type=? ORDER BY last_used DESC, id ASC")) {
+            statement.setString(1, xuid);
+            statement.setString(2, providerType.storageKey());
+            try (ResultSet result = statement.executeQuery()) {
+                while (result.next()) {
+                    identities.add(readIdentity(result));
+                }
+            }
+        }
+        return identities;
+    }
+
+    private Optional<StoredCredential> findCredentialNow(long identityId, String xuid) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT c.identity_id, c.credential_format, c.encrypted_blob, c.updated_at " +
+                        "FROM identity_credentials c JOIN identities i ON i.id=c.identity_id " +
+                        "WHERE c.identity_id=? AND i.xuid=?")) {
+            statement.setLong(1, identityId);
+            statement.setString(2, xuid);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(new StoredCredential(
+                        result.getLong("identity_id"),
+                        result.getString("credential_format"),
+                        result.getString("encrypted_blob"),
+                        result.getLong("updated_at")
+                ));
+            }
+        }
+    }
+
+    private void saveCredentialNow(
+            long identityId,
+            String xuid,
+            String credentialFormat,
+            String encryptedBlob
+    ) throws SQLException {
+        if (findByIdNow(identityId, xuid).isEmpty()) {
+            throw new SQLException("Identity no longer exists");
+        }
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO identity_credentials(identity_id, credential_format, encrypted_blob, updated_at) VALUES(?,?,?,?) " +
+                        "ON CONFLICT(identity_id) DO UPDATE SET credential_format=excluded.credential_format, " +
+                        "encrypted_blob=excluded.encrypted_blob, updated_at=excluded.updated_at")) {
+            statement.setLong(1, identityId);
+            statement.setString(2, credentialFormat);
+            statement.setString(3, encryptedBlob);
+            statement.setLong(4, System.currentTimeMillis());
+            statement.executeUpdate();
+        }
+    }
+
     private Optional<Identity> findByXuidAndNameNow(String xuid, IdentityProviderType providerType, String gameName) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT id, xuid, provider_type, game_name, java_uuid, uuid_mode, created_at, last_used FROM identities WHERE xuid=? AND provider_type=? AND name_key=?")) {
@@ -342,7 +433,7 @@ public final class IdentityRepository implements AutoCloseable {
             return new ClaimResult(ClaimResult.Status.EXISTING, identity);
         }
 
-        if (maxAccounts > 0 && countByXuidNow(xuid) >= maxAccounts) {
+        if (maxAccounts > 0 && countByXuidNow(xuid, providerType) >= maxAccounts) {
             return new ClaimResult(ClaimResult.Status.LIMIT_REACHED, null);
         }
 
@@ -378,9 +469,11 @@ public final class IdentityRepository implements AutoCloseable {
         }
     }
 
-    private int countByXuidNow(String xuid) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("SELECT COUNT(*) FROM identities WHERE xuid=?")) {
+    private int countByXuidNow(String xuid, IdentityProviderType providerType) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT COUNT(*) FROM identities WHERE xuid=? AND provider_type=?")) {
             statement.setString(1, xuid);
+            statement.setString(2, providerType.storageKey());
             try (ResultSet result = statement.executeQuery()) {
                 return result.next() ? result.getInt(1) : 0;
             }
@@ -486,6 +579,14 @@ public final class IdentityRepository implements AutoCloseable {
         } catch (SQLException exception) {
             throw new DatabaseException(exception);
         }
+    }
+
+    public record StoredCredential(
+            long identityId,
+            String credentialFormat,
+            String encryptedBlob,
+            long updatedAt
+    ) {
     }
 
     @FunctionalInterface
