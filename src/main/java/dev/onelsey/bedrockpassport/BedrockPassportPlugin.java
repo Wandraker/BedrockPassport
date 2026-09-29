@@ -25,6 +25,10 @@ import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+
 public final class BedrockPassportPlugin extends JavaPlugin {
     private IdentityRepository repository;
     private IdentityGate gate;
@@ -479,6 +483,115 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         return current == null ? null : current.findByJavaName(javaName);
     }
 
+    public CompletableFuture<LoginResetResult> resetSavedJavaLogin(String javaName) {
+        String target = javaName == null ? "" : javaName.trim();
+        if (target.isEmpty()) {
+            return CompletableFuture.completedFuture(
+                    new LoginResetResult(false, false, "A Java account name is required.")
+            );
+        }
+
+        IdentityRepository currentRepository = repository;
+        if (currentRepository == null) {
+            return CompletableFuture.completedFuture(
+                    new LoginResetResult(false, false, "BedrockPassport runtime is not active.")
+            );
+        }
+
+        OnlineIdentityGate currentGate = onlineGate;
+        if (currentGate != null && !currentGate.beginCredentialMaintenance()) {
+            return CompletableFuture.completedFuture(
+                    new LoginResetResult(false, false,
+                            "Login reset refused while a Java-account selector is active. Wait for it to finish or disconnect and try again.")
+            );
+        }
+
+        CompletableFuture<LoginResetResult> future = currentRepository.deleteCredentialByJavaName(target)
+                .handle((count, error) -> {
+                    if (error != null) {
+                        Throwable cause = unwrapCompletion(error);
+                        getLogger().severe("Could not reset the saved Java login for " + target + ": "
+                                + cause.getClass().getSimpleName() + ": " + cause.getMessage());
+                        return new LoginResetResult(false, false,
+                                "Could not reset the saved Java login. Check the console.");
+                    }
+                    if (count == 0) {
+                        return new LoginResetResult(true, false,
+                                "No saved JAVA_ACCOUNT login was found for " + target + ".");
+                    }
+                    return new LoginResetResult(true, true,
+                            "Reset " + count + " saved login(s) for " + target
+                                    + ". The Passport identity was kept; the player must verify the same Java account next time.");
+                });
+
+        if (currentGate != null) {
+            future = future.whenComplete((result, error) -> currentGate.endCredentialMaintenance());
+        }
+        return future;
+    }
+
+    public CompletableFuture<LoginResetResult> resetAllSavedJavaLogins() {
+        IdentityRepository currentRepository = repository;
+        if (currentRepository == null) {
+            return CompletableFuture.completedFuture(
+                    new LoginResetResult(false, false, "BedrockPassport runtime is not active.")
+            );
+        }
+
+        OnlineIdentityGate currentGate = onlineGate;
+        if (currentGate != null && !currentGate.beginCredentialMaintenance()) {
+            return CompletableFuture.completedFuture(
+                    new LoginResetResult(false, false,
+                            "Global login reset refused while a Java-account selector is active. Wait for it to finish or disconnect and try again.")
+            );
+        }
+
+        CompletableFuture<LoginResetResult> future = currentRepository
+                .deleteAllCredentials(IdentityProviderType.JAVA_ACCOUNT)
+                .thenApply(count -> {
+                    try {
+                        rotateCredentialKey();
+                    } catch (IOException exception) {
+                        throw new CompletionException(exception);
+                    }
+                    getLogger().warning("Reset all saved JAVA_ACCOUNT login credentials and rotated credentials.key. "
+                            + "Passport identities were kept; players will re-authenticate on their next connection.");
+                    return new LoginResetResult(true, true,
+                            "Reset " + count + " saved Java login(s) and rotated credentials.key. "
+                                    + "Passport identities were kept; affected players must verify their Java accounts again.");
+                })
+                .exceptionally(error -> {
+                    Throwable cause = unwrapCompletion(error);
+                    getLogger().severe("Could not complete the global saved-login reset: "
+                            + cause.getClass().getSimpleName() + ": " + cause.getMessage());
+                    return new LoginResetResult(false, false,
+                            "Could not complete the global saved-login reset. Check the console.");
+                });
+
+        if (currentGate != null) {
+            future = future.whenComplete((result, error) -> currentGate.endCredentialMaintenance());
+        }
+        return future;
+    }
+
+    private void rotateCredentialKey() throws IOException {
+        CredentialVault currentVault = credentialVault;
+        if (currentVault != null) {
+            currentVault.rotate();
+            return;
+        }
+        CredentialVault.rotateKeyFile(getDataFolder().toPath().resolve("credentials.key"));
+    }
+
+    private static Throwable unwrapCompletion(Throwable throwable) {
+        Throwable current = throwable;
+        while ((current instanceof CompletionException || current instanceof java.util.concurrent.ExecutionException)
+                && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
     private void failEnable(String message, Throwable exception) {
         getLogger().severe(message);
         if (exception != null) {
@@ -488,5 +601,8 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     }
 
     public record ReloadResult(boolean success, String message) {
+    }
+
+    public record LoginResetResult(boolean success, boolean changed, String message) {
     }
 }

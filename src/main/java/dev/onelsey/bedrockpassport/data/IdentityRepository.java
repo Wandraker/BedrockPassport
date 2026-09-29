@@ -309,6 +309,14 @@ public final class IdentityRepository implements AutoCloseable {
         });
     }
 
+    public CompletableFuture<Integer> deleteCredentialByJavaName(String gameName) {
+        return submit(() -> deleteCredentialByJavaNameNow(gameName));
+    }
+
+    public CompletableFuture<Integer> deleteAllCredentials(IdentityProviderType providerType) {
+        return submit(() -> deleteAllCredentialsNow(providerType));
+    }
+
     public CompletableFuture<ClaimResult> claim(
             String xuid,
             IdentityProviderType providerType,
@@ -401,6 +409,25 @@ public final class IdentityRepository implements AutoCloseable {
             statement.setString(3, encryptedBlob);
             statement.setLong(4, System.currentTimeMillis());
             statement.executeUpdate();
+        }
+    }
+
+    private int deleteCredentialByJavaNameNow(String gameName) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "DELETE FROM identity_credentials WHERE identity_id IN (" +
+                        "SELECT id FROM identities WHERE provider_type=? AND name_key=?)")) {
+            statement.setString(1, IdentityProviderType.JAVA_ACCOUNT.storageKey());
+            statement.setString(2, nameCollisionPolicy.key(gameName));
+            return statement.executeUpdate();
+        }
+    }
+
+    private int deleteAllCredentialsNow(IdentityProviderType providerType) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "DELETE FROM identity_credentials WHERE identity_id IN (" +
+                        "SELECT id FROM identities WHERE provider_type=?)")) {
+            statement.setString(1, providerType.storageKey());
+            return statement.executeUpdate();
         }
     }
 

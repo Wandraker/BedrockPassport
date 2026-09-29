@@ -11,6 +11,7 @@ import org.bukkit.command.TabCompleter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 
 public final class BedrockPassportAdminCommand implements CommandExecutor, TabCompleter {
     private final BedrockPassportPlugin plugin;
@@ -58,8 +59,59 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
             return true;
         }
 
-        sender.sendMessage(ChatUi.warning("Usage: /" + label + " <status|reload|who <javaName>>"));
+        if (args[0].equalsIgnoreCase("reset-login")) {
+            handleLoginReset(sender, label, args);
+            return true;
+        }
+
+        sender.sendMessage(ChatUi.warning("Usage: /" + label + " <status|reload|who <javaName>|reset-login <javaName|--all confirm>>"));
         return true;
+    }
+
+    private void handleLoginReset(CommandSender sender, String label, String[] args) {
+        if (args.length < 2) {
+            sender.sendMessage(ChatUi.warning("Usage: /" + label + " reset-login <javaName>"));
+            sender.sendMessage(ChatUi.warning("Global reset: /" + label + " reset-login --all confirm"));
+            return;
+        }
+
+        if (args[1].equalsIgnoreCase("--all")) {
+            if (args.length != 3 || !args[2].equalsIgnoreCase("confirm")) {
+                sender.sendMessage(ChatUi.warning("This keeps Passport identities but forces all saved Java accounts to verify again."));
+                sender.sendMessage(ChatUi.warning("To continue: /" + label + " reset-login --all confirm"));
+                return;
+            }
+            sender.sendMessage(ChatUi.info("Resetting all saved Java sign-ins and rotating the credential key..."));
+            sendLoginResetResult(sender, plugin.resetAllSavedJavaLogins());
+            return;
+        }
+
+        if (args.length != 2) {
+            sender.sendMessage(ChatUi.warning("Usage: /" + label + " reset-login <javaName>"));
+            return;
+        }
+
+        sender.sendMessage(ChatUi.info("Resetting the saved Java sign-in for " + args[1] + "..."));
+        sendLoginResetResult(sender, plugin.resetSavedJavaLogin(args[1]));
+    }
+
+    private void sendLoginResetResult(
+            CommandSender sender,
+            CompletableFuture<BedrockPassportPlugin.LoginResetResult> future
+    ) {
+        future.whenComplete((result, error) -> plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (error != null) {
+                sender.sendMessage(ChatUi.error("Saved-login reset failed. Check the console."));
+                return;
+            }
+            if (!result.success()) {
+                sender.sendMessage(ChatUi.error(result.message()));
+            } else if (result.changed()) {
+                sender.sendMessage(ChatUi.success(result.message()));
+            } else {
+                sender.sendMessage(ChatUi.warning(result.message()));
+            }
+        }));
     }
 
     private void sendStatus(CommandSender sender) {
@@ -87,12 +139,22 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
         if (args.length == 1) {
             String prefix = args[0].toLowerCase(Locale.ROOT);
             List<String> values = new ArrayList<>();
-            for (String value : List.of("status", "reload", "who")) {
+            for (String value : List.of("status", "reload", "who", "reset-login")) {
                 if (value.startsWith(prefix)) {
                     values.add(value);
                 }
             }
             return values;
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("reset-login")) {
+            String prefix = args[1].toLowerCase(Locale.ROOT);
+            return "--all".startsWith(prefix) ? List.of("--all") : List.of();
+        }
+        if (args.length == 3
+                && args[0].equalsIgnoreCase("reset-login")
+                && args[1].equalsIgnoreCase("--all")) {
+            String prefix = args[2].toLowerCase(Locale.ROOT);
+            return "confirm".startsWith(prefix) ? List.of("confirm") : List.of();
         }
         return List.of();
     }

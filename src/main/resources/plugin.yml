@@ -17,7 +17,7 @@ libraries:
 commands:
   bedrockpassport:
     description: BedrockPassport administration
-    usage: /bedrockpassport <status|reload|who>
+    usage: /bedrockpassport <status|reload|who|reset-login>
     aliases: [bp]
     permission: bedrockpassport.admin
 permissions:

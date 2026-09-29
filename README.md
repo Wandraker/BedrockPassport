@@ -254,6 +254,8 @@ Permission: `bedrockpassport.admin` (OP by default).
 /bedrockpassport status
 /bedrockpassport reload
 /bedrockpassport who <javaName>
+/bedrockpassport reset-login <javaName>
+/bedrockpassport reset-login --all confirm
 ```
 
 Alias: `/bp`.
@@ -271,6 +273,22 @@ Shows whether a Java identity is online or pending. For an active Bedrock identi
 Reloads and migrates the configuration and rebuilds the BedrockPassport runtime without a full server restart.
 
 Reload is refused while an identity selector or protected login reservation is still active.
+
+### `/bp reset-login <javaName>`
+
+Deletes the saved reusable authentication state for the matching `JAVA_ACCOUNT` entry without deleting its Passport identity or UUID.
+
+The next time that Java account is selected, the player must complete Microsoft/Minecraft authentication again. BedrockPassport accepts the re-authentication only when it resolves to the same saved Java UUID.
+
+### `/bp reset-login --all confirm`
+
+Deletes all saved `JAVA_ACCOUNT` authentication state and rotates `credentials.key`.
+
+Passport identities remain in the database. Affected players verify their existing Java accounts once on their next connection, after which normal saved-account reuse continues.
+
+The reset is refused while a JAVA_ACCOUNT selector is active so a concurrent login cannot immediately write a credential back during the reset.
+
+These commands remove BedrockPassport's local saved sign-in state. They do not remotely revoke a credential that was already copied from a compromised server; use the Microsoft account's security controls as well if token theft is suspected.
 
 ## Installation
 
@@ -370,6 +388,8 @@ plugins/BedrockPassport/credentials.key
 ```
 
 The first account connection requires Microsoft device-code authentication. Later connections can select the saved Java account and reuse a refreshed authenticated chain without repeating the device-code flow unless re-authentication is required.
+
+Administrators can invalidate one saved Java sign-in with `/bp reset-login <javaName>`, or invalidate every saved JAVA_ACCOUNT sign-in and rotate the local encryption key with `/bp reset-login --all confirm`. The identity records and verified Java UUIDs are kept, so reset accounts re-authenticate against the same saved identity instead of being recreated.
 
 ## Compatibility and maintenance
 

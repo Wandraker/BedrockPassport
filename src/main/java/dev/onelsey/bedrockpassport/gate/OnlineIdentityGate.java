@@ -48,6 +48,8 @@ public final class OnlineIdentityGate implements AutoCloseable {
 
     private final Map<String, Flow> active = new ConcurrentHashMap<>();
     private final ScheduledExecutorService watchdog;
+    private final Object credentialMaintenanceLock = new Object();
+    private boolean credentialMaintenance;
 
     public OnlineIdentityGate(
             IdentityRepository repository,
@@ -102,12 +104,39 @@ public final class OnlineIdentityGate implements AutoCloseable {
 
     public void open(GeyserOnlineAuthBridge.HeldSession held) {
         Flow flow = new Flow(held);
-        Flow previous = active.putIfAbsent(held.xuid(), flow);
+        Flow previous = null;
+        boolean maintenance;
+        synchronized (credentialMaintenanceLock) {
+            maintenance = credentialMaintenance;
+            if (!maintenance) {
+                previous = active.putIfAbsent(held.xuid(), flow);
+            }
+        }
+        if (maintenance) {
+            authBridge.disconnect(held, "§bBedrockPassport §8» §fSaved Java sign-ins are being reset. Please reconnect in a moment.");
+            return;
+        }
         if (previous != null) {
             authBridge.disconnect(held, "§bBedrockPassport §8» §fThis Bedrock/Xbox account already has an active Passport session.");
             return;
         }
         showHome(flow, null);
+    }
+
+    public boolean beginCredentialMaintenance() {
+        synchronized (credentialMaintenanceLock) {
+            if (credentialMaintenance || !active.isEmpty()) {
+                return false;
+            }
+            credentialMaintenance = true;
+            return true;
+        }
+    }
+
+    public void endCredentialMaintenance() {
+        synchronized (credentialMaintenanceLock) {
+            credentialMaintenance = false;
+        }
     }
 
     public void handleDisconnect(String xuid) {
@@ -198,7 +227,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
             }
             if (stored.isEmpty()) {
                 flow.externalAuth = false;
-                offerReauthentication(flow, identity, "Saved Microsoft credential is missing.");
+                offerReauthentication(flow, identity, "This Java account needs to be verified again.");
                 return;
             }
 

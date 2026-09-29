@@ -6,8 +6,10 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.security.GeneralSecurityException;
@@ -23,9 +25,11 @@ public final class CredentialVault {
     private static final int TAG_BITS = 128;
 
     private final SecureRandom random = new SecureRandom();
-    private final SecretKey key;
+    private final Path keyFile;
+    private volatile SecretKey key;
 
     public CredentialVault(Path keyFile) throws IOException {
+        this.keyFile = keyFile;
         this.key = new SecretKeySpec(loadOrCreateKey(keyFile), "AES");
     }
 
@@ -59,6 +63,19 @@ public final class CredentialVault {
         cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, nonce));
         cipher.updateAAD(aad(xuid, javaUuid));
         return new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
+    }
+
+    public synchronized void rotate() throws IOException {
+        byte[] nextKey = new byte[KEY_BYTES];
+        random.nextBytes(nextKey);
+        writeKeyAtomically(keyFile, nextKey);
+        key = new SecretKeySpec(nextKey, "AES");
+    }
+
+    public static void rotateKeyFile(Path keyFile) throws IOException {
+        byte[] nextKey = new byte[KEY_BYTES];
+        new SecureRandom().nextBytes(nextKey);
+        writeKeyAtomically(keyFile, nextKey);
     }
 
     private static byte[] aad(String xuid, UUID javaUuid) {
@@ -97,6 +114,36 @@ public final class CredentialVault {
         }
         restrictPermissions(keyFile);
         return decoded;
+    }
+
+    private static void writeKeyAtomically(Path keyFile, byte[] key) throws IOException {
+        Path directory = keyFile.getParent();
+        Files.createDirectories(directory);
+        Path temporary = Files.createTempFile(directory, keyFile.getFileName().toString() + ".", ".tmp");
+        try {
+            String encoded = Base64.getEncoder().encodeToString(key) + System.lineSeparator();
+            Files.writeString(
+                    temporary,
+                    encoded,
+                    StandardCharsets.US_ASCII,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE
+            );
+            restrictPermissions(temporary);
+            try {
+                Files.move(
+                        temporary,
+                        keyFile,
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING
+                );
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(temporary, keyFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+            restrictPermissions(keyFile);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
 
     private static void restrictPermissions(Path keyFile) {
