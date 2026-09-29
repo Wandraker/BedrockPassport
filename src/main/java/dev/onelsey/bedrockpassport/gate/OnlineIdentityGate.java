@@ -241,6 +241,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
             }
             if (error != null) {
                 flow.externalAuth = false;
+                authBridge.resumeSelection(flow.held);
                 showHome(flow, "Microsoft/Java sign-in failed. You can try again.");
                 return;
             }
@@ -263,6 +264,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
                 }
                 if (!claim.accepted() || claim.identity() == null) {
                     flow.externalAuth = false;
+                    authBridge.resumeSelection(flow.held);
                     if (claim.status() == ClaimResult.Status.LIMIT_REACHED) {
                         showHome(flow, "This Passport has reached its Java-account limit.");
                     } else {
@@ -272,6 +274,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
                 }
                 if (!account.javaUuid().equals(claim.identity().javaUuid())) {
                     flow.externalAuth = false;
+                    authBridge.resumeSelection(flow.held);
                     fail(flow, new IllegalStateException("Existing Passport identity has a different verified Java UUID"));
                     return;
                 }
@@ -314,11 +317,13 @@ public final class OnlineIdentityGate implements AutoCloseable {
             }
             if (error != null) {
                 flow.externalAuth = false;
+                authBridge.resumeSelection(flow.held);
                 showHome(flow, "Microsoft/Java sign-in failed.");
                 return;
             }
             if (!identity.javaUuid().equals(account.javaUuid())) {
                 flow.externalAuth = false;
+                authBridge.resumeSelection(flow.held);
                 showHome(flow, "The Microsoft account you signed into is not " + identity.gameName() + ".");
                 return;
             }

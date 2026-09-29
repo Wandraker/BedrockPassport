@@ -247,6 +247,41 @@ public final class GeyserOnlineAuthBridge implements AutoCloseable {
         return result;
     }
 
+    public void resumeSelection(HeldSession held) {
+        if (held == null) {
+            return;
+        }
+        try {
+            sessionExecuteInEventLoop.invoke(held.handle().session(), (Runnable) () -> {
+                try {
+                    if (heldBySession.get(held.handle().session()) == held
+                            && !(boolean) sessionIsClosed.invoke(held.handle().session())) {
+                        sessionLoggingIn.setBoolean(held.handle().session(), false);
+                    }
+                } catch (Throwable ignored) {
+                }
+            });
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public void disconnectRaw(GeyserPendingSessionBridge.SessionHandle handle, String reason) {
+        if (handle == null) {
+            return;
+        }
+        try {
+            sessionExecuteInEventLoop.invoke(handle.session(), (Runnable) () -> {
+                try {
+                    if (!(boolean) sessionIsClosed.invoke(handle.session())) {
+                        sessionDisconnect.invoke(handle.session(), reason);
+                    }
+                } catch (Throwable ignored) {
+                }
+            });
+        } catch (Throwable ignored) {
+        }
+    }
+
     public void disconnect(HeldSession held, String reason) {
         if (held == null) {
             return;

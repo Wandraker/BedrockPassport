@@ -66,6 +66,7 @@ public final class GeyserOnlineSessionBridge implements AutoCloseable {
             held = authBridge.hold(handle, xuid);
         } catch (Throwable throwable) {
             logger.log(Level.SEVERE, "BedrockPassport could not hold the Geyser online-auth session for XUID " + xuid, throwable);
+            authBridge.disconnectRaw(handle, "§bBedrockPassport §8» §fGeyser must use Java auth-type online for this Passport mode.");
             return;
         }
 
