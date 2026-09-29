@@ -6,7 +6,7 @@ import static dev.onelsey.bedrockpassport.gate.GateSupport.withError;
 import dev.onelsey.bedrockpassport.data.ClaimResult;
 import dev.onelsey.bedrockpassport.data.Identity;
 import dev.onelsey.bedrockpassport.data.IdentityRepository;
-import dev.onelsey.bedrockpassport.identity.JavaUuidResolver;
+import dev.onelsey.bedrockpassport.identity.LocalIdentityProvider;
 import dev.onelsey.bedrockpassport.integration.GeyserPendingSessionBridge;
 import dev.onelsey.bedrockpassport.name.NamePolicy;
 import dev.onelsey.bedrockpassport.security.SessionGuard;
@@ -25,7 +25,7 @@ public final class IdentityGate implements AutoCloseable {
     private final IdentityRepository repository;
     private final GeyserPendingSessionBridge geyser;
     private final NamePolicy namePolicy;
-    private final JavaUuidResolver uuidResolver;
+    private final LocalIdentityProvider identityProvider;
     private final SessionGuard sessionGuard;
     private final GateMessages messages;
     private final AccountManagementFlow accountManagement;
@@ -40,7 +40,7 @@ public final class IdentityGate implements AutoCloseable {
             IdentityRepository repository,
             GeyserPendingSessionBridge geyser,
             NamePolicy namePolicy,
-            JavaUuidResolver uuidResolver,
+            LocalIdentityProvider identityProvider,
             SessionGuard sessionGuard,
             GateMessages messages,
             int maxAccounts,
@@ -51,7 +51,7 @@ public final class IdentityGate implements AutoCloseable {
         this.repository = repository;
         this.geyser = geyser;
         this.namePolicy = namePolicy;
-        this.uuidResolver = uuidResolver;
+        this.identityProvider = identityProvider;
         this.sessionGuard = sessionGuard;
         this.messages = messages;
         this.maxAccounts = maxAccounts;
@@ -228,7 +228,7 @@ public final class IdentityGate implements AutoCloseable {
             return;
         }
 
-        uuidResolver.resolve(name).whenComplete((javaUuid, uuidError) -> {
+        identityProvider.resolve(name).whenComplete((javaUuid, uuidError) -> {
             if (state.result.isDone()) {
                 return;
             }
@@ -237,7 +237,14 @@ public final class IdentityGate implements AutoCloseable {
                 return;
             }
 
-            repository.claim(state.xuid, name, javaUuid, uuidResolver.mode(), maxAccounts).whenComplete((claim, claimError) -> {
+            repository.claim(
+                    state.xuid,
+                    identityProvider.type(),
+                    name,
+                    javaUuid,
+                    identityProvider.uuidMode(),
+                    maxAccounts
+            ).whenComplete((claim, claimError) -> {
                 if (state.result.isDone()) {
                     return;
                 }
@@ -267,12 +274,19 @@ public final class IdentityGate implements AutoCloseable {
             return;
         }
 
+        if (identity.providerType() != identityProvider.type()) {
+            state.result.completeExceptionally(new IllegalStateException(
+                    "Identity provider " + identity.providerType().storageKey() + " is not available in the current LOCAL runtime"
+            ));
+            return;
+        }
+
         CompletableFuture<Identity> prepared;
-        if (identity.javaUuid() != null && uuidResolver.mode().equals(identity.uuidMode())) {
+        if (identity.javaUuid() != null && identityProvider.uuidMode().equals(identity.uuidMode())) {
             prepared = CompletableFuture.completedFuture(identity);
         } else {
-            prepared = uuidResolver.resolve(identity.gameName())
-                    .thenCompose(uuid -> repository.updateJavaIdentity(identity.id(), state.xuid, uuid, uuidResolver.mode()));
+            prepared = identityProvider.resolve(identity.gameName())
+                    .thenCompose(uuid -> repository.updateJavaIdentity(identity.id(), state.xuid, uuid, identityProvider.uuidMode()));
         }
 
         prepared.whenComplete((preparedIdentity, prepareError) -> {

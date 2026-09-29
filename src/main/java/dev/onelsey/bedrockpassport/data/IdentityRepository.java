@@ -1,5 +1,6 @@
 package dev.onelsey.bedrockpassport.data;
 
+import dev.onelsey.bedrockpassport.identity.IdentityProviderType;
 import dev.onelsey.bedrockpassport.security.NameCollisionPolicy;
 
 import java.nio.file.Path;
@@ -50,8 +51,12 @@ public final class IdentityRepository implements AutoCloseable {
 
         List<String> columns = tableColumns("identities");
         if (columns.contains("id") && columns.contains("name_key") && columns.contains("java_uuid") && columns.contains("uuid_mode")) {
-            if (hasUniqueIndexExactly("name_key") && !hasUniqueIndexExactly("xuid", "name_key")) {
+            if (hasUniqueIndexExactly("name_key")
+                    && !hasUniqueIndexExactly("xuid", "name_key")
+                    && !hasUniqueIndexExactly("xuid", "provider_type", "name_key")) {
                 migrateGlobalNameOwnershipSchema();
+            } else if (!columns.contains("provider_type")) {
+                addProviderTypeColumn();
             }
             createIndexes();
             rebuildNameKeys();
@@ -113,6 +118,12 @@ public final class IdentityRepository implements AutoCloseable {
         return false;
     }
 
+    private void addProviderTypeColumn() throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE identities ADD COLUMN provider_type TEXT NOT NULL DEFAULT 'local'");
+        }
+    }
+
     private void migrateGlobalNameOwnershipSchema() throws SQLException {
         boolean previousAutoCommit = connection.getAutoCommit();
         connection.setAutoCommit(false);
@@ -123,8 +134,8 @@ public final class IdentityRepository implements AutoCloseable {
             statement.execute("DROP INDEX IF EXISTS identities_xuid_name_key_uq");
             statement.execute("ALTER TABLE identities RENAME TO identities_legacy_global_name_owner");
             createCurrentSchema(statement);
-            statement.execute("INSERT INTO identities(id, xuid, game_name, name_key, java_uuid, uuid_mode, created_at, last_used) " +
-                    "SELECT id, xuid, game_name, name_key, java_uuid, uuid_mode, created_at, last_used FROM identities_legacy_global_name_owner");
+            statement.execute("INSERT INTO identities(id, xuid, provider_type, game_name, name_key, java_uuid, uuid_mode, created_at, last_used) " +
+                    "SELECT id, xuid, 'local', game_name, name_key, java_uuid, uuid_mode, created_at, last_used FROM identities_legacy_global_name_owner");
             statement.execute("DROP TABLE identities_legacy_global_name_owner");
             connection.commit();
         } catch (SQLException exception) {
@@ -142,8 +153,8 @@ public final class IdentityRepository implements AutoCloseable {
             statement.execute("DROP INDEX IF EXISTS identities_game_name_idx");
             statement.execute("ALTER TABLE identities RENAME TO identities_legacy_v1");
             createCurrentSchema(statement);
-            statement.execute("INSERT INTO identities(xuid, game_name, name_key, java_uuid, uuid_mode, created_at, last_used) " +
-                    "SELECT xuid, game_name, '__legacy_v1_' || rowid, NULL, NULL, created_at, last_seen FROM identities_legacy_v1");
+            statement.execute("INSERT INTO identities(xuid, provider_type, game_name, name_key, java_uuid, uuid_mode, created_at, last_used) " +
+                    "SELECT xuid, 'local', game_name, '__legacy_v1_' || rowid, NULL, NULL, created_at, last_seen FROM identities_legacy_v1");
             statement.execute("DROP TABLE identities_legacy_v1");
             connection.commit();
         } catch (SQLException exception) {
@@ -162,8 +173,8 @@ public final class IdentityRepository implements AutoCloseable {
             statement.execute("DROP INDEX IF EXISTS identities_xuid_last_used_idx");
             statement.execute("ALTER TABLE identities RENAME TO identities_legacy_v2");
             createCurrentSchema(statement);
-            statement.execute("INSERT INTO identities(id, xuid, game_name, name_key, java_uuid, uuid_mode, created_at, last_used) " +
-                    "SELECT id, xuid, game_name, '__legacy_v2_' || id, java_uuid, uuid_mode, created_at, last_used FROM identities_legacy_v2");
+            statement.execute("INSERT INTO identities(id, xuid, provider_type, game_name, name_key, java_uuid, uuid_mode, created_at, last_used) " +
+                    "SELECT id, xuid, 'local', game_name, '__legacy_v2_' || id, java_uuid, uuid_mode, created_at, last_used FROM identities_legacy_v2");
             statement.execute("DROP TABLE identities_legacy_v2");
             connection.commit();
         } catch (SQLException exception) {
@@ -184,6 +195,7 @@ public final class IdentityRepository implements AutoCloseable {
         statement.execute("CREATE TABLE IF NOT EXISTS identities(" +
                 "id INTEGER PRIMARY KEY AUTOINCREMENT," +
                 "xuid TEXT NOT NULL," +
+                "provider_type TEXT NOT NULL DEFAULT 'local'," +
                 "game_name TEXT NOT NULL," +
                 "name_key TEXT NOT NULL," +
                 "java_uuid TEXT," +
@@ -201,7 +213,8 @@ public final class IdentityRepository implements AutoCloseable {
     }
 
     private void createIndexes(Statement statement) throws SQLException {
-        statement.execute("CREATE UNIQUE INDEX IF NOT EXISTS identities_xuid_name_key_uq ON identities(xuid, name_key)");
+        statement.execute("DROP INDEX IF EXISTS identities_xuid_name_key_uq");
+        statement.execute("CREATE UNIQUE INDEX IF NOT EXISTS identities_xuid_provider_name_key_uq ON identities(xuid, provider_type, name_key)");
         statement.execute("CREATE INDEX IF NOT EXISTS identities_xuid_last_used_idx ON identities(xuid, last_used DESC, id ASC)");
         statement.execute("CREATE INDEX IF NOT EXISTS identities_name_key_idx ON identities(name_key)");
         statement.execute("CREATE INDEX IF NOT EXISTS identities_game_name_idx ON identities(game_name)");
@@ -211,13 +224,14 @@ public final class IdentityRepository implements AutoCloseable {
         Map<Long, String> targets = new HashMap<>();
         Map<String, String> owners = new HashMap<>();
         boolean alreadyCurrent = true;
-        try (Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery("SELECT id, xuid, game_name, name_key FROM identities ORDER BY id")) {
+        try (Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery("SELECT id, xuid, provider_type, game_name, name_key FROM identities ORDER BY id")) {
             while (result.next()) {
                 long id = result.getLong("id");
                 String xuid = result.getString("xuid");
+                IdentityProviderType providerType = parseProviderType(result.getString("provider_type"));
                 String gameName = result.getString("game_name");
                 String target = nameCollisionPolicy.key(gameName);
-                String ownershipKey = xuid + '\u0000' + target;
+                String ownershipKey = xuid + '\u0000' + providerType.storageKey() + '\u0000' + target;
                 String previous = owners.putIfAbsent(ownershipKey, gameName);
                 if (previous != null) {
                     throw new SQLException("BedrockPassport cannot enable " + nameCollisionPolicy.mode() +
@@ -262,8 +276,15 @@ public final class IdentityRepository implements AutoCloseable {
         return submit(() -> listByXuidNow(xuid));
     }
 
-    public CompletableFuture<ClaimResult> claim(String xuid, String gameName, UUID javaUuid, String uuidMode, int maxAccounts) {
-        return submit(() -> claimNow(xuid, gameName, javaUuid, uuidMode, maxAccounts));
+    public CompletableFuture<ClaimResult> claim(
+            String xuid,
+            IdentityProviderType providerType,
+            String gameName,
+            UUID javaUuid,
+            String uuidMode,
+            int maxAccounts
+    ) {
+        return submit(() -> claimNow(xuid, providerType, gameName, javaUuid, uuidMode, maxAccounts));
     }
 
     public CompletableFuture<Identity> updateJavaIdentity(long identityId, String xuid, UUID javaUuid, String uuidMode) {
@@ -281,7 +302,7 @@ public final class IdentityRepository implements AutoCloseable {
     private List<Identity> listByXuidNow(String xuid) throws SQLException {
         List<Identity> identities = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT id, xuid, game_name, java_uuid, uuid_mode, created_at, last_used FROM identities WHERE xuid=? ORDER BY last_used DESC, id ASC")) {
+                "SELECT id, xuid, provider_type, game_name, java_uuid, uuid_mode, created_at, last_used FROM identities WHERE xuid=? ORDER BY last_used DESC, id ASC")) {
             statement.setString(1, xuid);
             try (ResultSet result = statement.executeQuery()) {
                 while (result.next()) {
@@ -292,19 +313,27 @@ public final class IdentityRepository implements AutoCloseable {
         return identities;
     }
 
-    private Optional<Identity> findByXuidAndNameNow(String xuid, String gameName) throws SQLException {
+    private Optional<Identity> findByXuidAndNameNow(String xuid, IdentityProviderType providerType, String gameName) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT id, xuid, game_name, java_uuid, uuid_mode, created_at, last_used FROM identities WHERE xuid=? AND name_key=?")) {
+                "SELECT id, xuid, provider_type, game_name, java_uuid, uuid_mode, created_at, last_used FROM identities WHERE xuid=? AND provider_type=? AND name_key=?")) {
             statement.setString(1, xuid);
-            statement.setString(2, nameCollisionPolicy.key(gameName));
+            statement.setString(2, providerType.storageKey());
+            statement.setString(3, nameCollisionPolicy.key(gameName));
             try (ResultSet result = statement.executeQuery()) {
                 return result.next() ? Optional.of(readIdentity(result)) : Optional.empty();
             }
         }
     }
 
-    private ClaimResult claimNow(String xuid, String gameName, UUID javaUuid, String uuidMode, int maxAccounts) throws SQLException {
-        Optional<Identity> existing = findByXuidAndNameNow(xuid, gameName);
+    private ClaimResult claimNow(
+            String xuid,
+            IdentityProviderType providerType,
+            String gameName,
+            UUID javaUuid,
+            String uuidMode,
+            int maxAccounts
+    ) throws SQLException {
+        Optional<Identity> existing = findByXuidAndNameNow(xuid, providerType, gameName);
         if (existing.isPresent()) {
             Identity identity = existing.get();
             if (identity.javaUuid() == null || identity.uuidMode() == null || !uuidMode.equals(identity.uuidMode())) {
@@ -319,28 +348,29 @@ public final class IdentityRepository implements AutoCloseable {
 
         long now = System.currentTimeMillis();
         try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO identities(xuid, game_name, name_key, java_uuid, uuid_mode, created_at, last_used) VALUES(?,?,?,?,?,?,?)",
+                "INSERT INTO identities(xuid, provider_type, game_name, name_key, java_uuid, uuid_mode, created_at, last_used) VALUES(?,?,?,?,?,?,?,?)",
                 Statement.RETURN_GENERATED_KEYS)) {
             statement.setString(1, xuid);
-            statement.setString(2, gameName);
-            statement.setString(3, nameCollisionPolicy.key(gameName));
-            statement.setString(4, javaUuid.toString());
-            statement.setString(5, uuidMode);
-            statement.setLong(6, now);
+            statement.setString(2, providerType.storageKey());
+            statement.setString(3, gameName);
+            statement.setString(4, nameCollisionPolicy.key(gameName));
+            statement.setString(5, javaUuid.toString());
+            statement.setString(6, uuidMode);
             statement.setLong(7, now);
+            statement.setLong(8, now);
             statement.executeUpdate();
             try (ResultSet keys = statement.getGeneratedKeys()) {
                 if (!keys.next()) {
                     throw new SQLException("SQLite did not return the new identity id");
                 }
                 return new ClaimResult(ClaimResult.Status.CLAIMED,
-                        new Identity(keys.getLong(1), xuid, gameName, javaUuid, uuidMode, now, now));
+                        new Identity(keys.getLong(1), xuid, providerType, gameName, javaUuid, uuidMode, now, now));
             }
         } catch (SQLException exception) {
             if (!isConstraintViolation(exception)) {
                 throw exception;
             }
-            existing = findByXuidAndNameNow(xuid, gameName);
+            existing = findByXuidAndNameNow(xuid, providerType, gameName);
             if (existing.isPresent()) {
                 return new ClaimResult(ClaimResult.Status.EXISTING, existing.get());
             }
@@ -394,7 +424,7 @@ public final class IdentityRepository implements AutoCloseable {
 
     private Optional<Identity> findByIdNow(long identityId, String xuid) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT id, xuid, game_name, java_uuid, uuid_mode, created_at, last_used FROM identities WHERE id=? AND xuid=?")) {
+                "SELECT id, xuid, provider_type, game_name, java_uuid, uuid_mode, created_at, last_used FROM identities WHERE id=? AND xuid=?")) {
             statement.setLong(1, identityId);
             statement.setString(2, xuid);
             try (ResultSet result = statement.executeQuery()) {
@@ -408,12 +438,21 @@ public final class IdentityRepository implements AutoCloseable {
         return new Identity(
                 result.getLong("id"),
                 result.getString("xuid"),
+                parseProviderType(result.getString("provider_type")),
                 result.getString("game_name"),
                 javaUuid == null ? null : UUID.fromString(javaUuid),
                 result.getString("uuid_mode"),
                 result.getLong("created_at"),
                 result.getLong("last_used")
         );
+    }
+
+    private static IdentityProviderType parseProviderType(String value) throws SQLException {
+        try {
+            return IdentityProviderType.fromStorage(value);
+        } catch (IllegalArgumentException exception) {
+            throw new SQLException("Unsupported identity provider type in passport.db: " + value, exception);
+        }
     }
 
     private static boolean isConstraintViolation(SQLException exception) {

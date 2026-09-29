@@ -6,6 +6,8 @@ A Bedrock/Xbox account can save multiple Java-style usernames in a native Bedroc
 
 BedrockPassport is **not** an authentication plugin. Saved Passport entries are identity shortcuts, not ownership claims. Passwords, `/login`, `/register`, PINs, 2FA and account ownership remain the responsibility of the server's authentication layer.
 
+> **Development branch note:** `dev/1.1.0-online-mode` introduces provider-aware identity storage as groundwork for verified Java-account identities. The current `1.1.0-dev.1` runtime still enables only the existing `LOCAL` provider and intentionally refuses `online-mode=true` until the Java-account authentication bridge is implemented and verified.
+
 ## Requirements
 
 - Paper, Purpur or Leaf
@@ -198,7 +200,7 @@ Alias: `/bp`.
 
 ### `/bp status`
 
-Shows runtime state, active Passport selectors, tracked sessions, pending admissions, identity trust mode, skin policy and configuration schema.
+Shows runtime state, active Passport selectors, tracked sessions, pending admissions, the active identity provider, identity trust mode, skin policy and configuration schema.
 
 ### `/bp who <javaName>`
 
