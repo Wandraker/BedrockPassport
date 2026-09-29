@@ -64,7 +64,7 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
             return true;
         }
 
-        sender.sendMessage(ChatUi.warning("Usage: /" + label + " <status|reload|who <javaName>|reset-login <javaName|--all confirm>>"));
+        sender.sendMessage(ChatUi.warning("Usage: /" + label + " status | reload | who <javaName> | reset-login <javaName> | reset-login --all confirm"));
         return true;
     }
 
