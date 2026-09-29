@@ -161,6 +161,26 @@ public final class GeyserPendingSessionBridge {
         return future;
     }
 
+    public CompletableFuture<SessionHandle> awaitInitialized(SessionHandle handle, long initTimeoutSeconds) {
+        CompletableFuture<SessionHandle> future = new CompletableFuture<>();
+        try {
+            execute(handle, () -> {
+                try {
+                    if (isClosed(handle)) {
+                        future.completeExceptionally(new IllegalStateException("Geyser session closed before passport selection"));
+                        return;
+                    }
+                    probeInitialized(handle, future, System.nanoTime() + TimeUnit.SECONDS.toNanos(initTimeoutSeconds));
+                } catch (Throwable throwable) {
+                    future.completeExceptionally(bridgeFailure(throwable));
+                }
+            });
+        } catch (Throwable throwable) {
+            future.completeExceptionally(bridgeFailure(throwable));
+        }
+        return future;
+    }
+
     private void probeInitialized(SessionHandle handle, CompletableFuture<SessionHandle> future, long deadline) {
         if (future.isDone()) {
             return;
