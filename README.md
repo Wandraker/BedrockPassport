@@ -25,8 +25,8 @@ BedrockPassport is **not** an authentication plugin. Saved Passport entries are 
 ### Experimental JAVA_ACCOUNT mode
 
 - `online-mode=true`
-- Geyser Java `auth-type: online`
-- Floodgate is not required for the Java-account handoff
+- Geyser Java authentication is forced to `online` while this runtime is active
+- Floodgate is not required for the Java-account handoff and may remain installed
 
 BedrockPassport performs a startup capability check for the Geyser pre-backend bridge it needs. If a required integration point is unavailable, the plugin fails closed instead of allowing an incomplete identity handoff.
 
@@ -226,10 +226,11 @@ Reload is refused while an identity selector or protected login reservation is s
 
 ## Installation
 
-1. Install Geyser-Spigot and Floodgate.
-2. Configure Geyser to use Floodgate authentication.
-3. Put BedrockPassport in the server's `plugins` directory.
-4. Start the server.
+1. Install Geyser-Spigot.
+2. For LOCAL mode, install Floodgate and use `online-mode=false`.
+3. For experimental JAVA_ACCOUNT mode, use `online-mode=true`; Floodgate may remain installed.
+4. Put BedrockPassport in the server's `plugins` directory.
+5. Start the server.
 
 Passport identity shortcuts are stored in:
 
@@ -309,10 +310,9 @@ Server setup:
 ```text
 server.properties:
 online-mode=true
-
-Geyser:
-java.auth-type=online
 ```
+
+On integrated plugin platforms, Geyser currently auto-selects Floodgate authentication when the Floodgate plugin is installed, even if the file contains `java.auth-type: online`. BedrockPassport detects this in `JAVA_ACCOUNT` mode and reasserts Geyser's runtime Java auth type as `online` after Geyser initializes and again when a Bedrock session is prepared. Floodgate can therefore remain installed.
 
 For the cleanest first test, do not rely on Geyser's own `saved-user-logins` entry for the Bedrock gamertag being tested. BedrockPassport temporarily isolates any already-cached Geyser auth chain for the held session, but a clean Geyser online-auth setup makes failures easier to diagnose.
 

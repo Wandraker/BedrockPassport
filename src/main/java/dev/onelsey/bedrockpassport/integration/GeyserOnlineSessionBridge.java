@@ -6,6 +6,8 @@ import org.geysermc.geyser.api.GeyserApi;
 import org.geysermc.geyser.api.event.EventRegistrar;
 import org.geysermc.geyser.api.event.bedrock.SessionDisconnectEvent;
 import org.geysermc.geyser.api.event.bedrock.SessionInitializeEvent;
+import org.geysermc.geyser.api.event.lifecycle.GeyserPostInitializeEvent;
+import org.geysermc.geyser.api.event.lifecycle.GeyserPostReloadEvent;
 
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
@@ -43,9 +45,21 @@ public final class GeyserOnlineSessionBridge implements AutoCloseable {
         if (registered) {
             throw new IllegalStateException("Geyser online session bridge is already registered");
         }
+        api.eventBus().subscribe(registrar, GeyserPostInitializeEvent.class, event -> onGeyserReady("post-initialize"));
+        api.eventBus().subscribe(registrar, GeyserPostReloadEvent.class, event -> onGeyserReady("post-reload"));
         api.eventBus().subscribe(registrar, SessionInitializeEvent.class, this::onInitialize);
         api.eventBus().subscribe(registrar, SessionDisconnectEvent.class, this::onDisconnect);
         registered = true;
+
+        authBridge.ensureConfiguredOnline("bridge-register");
+    }
+
+    private void onGeyserReady(String phase) {
+        try {
+            authBridge.ensureConfiguredOnline(phase);
+        } catch (Throwable throwable) {
+            logger.log(Level.SEVERE, "BedrockPassport could not enforce Geyser online authentication after " + phase + ".", throwable);
+        }
     }
 
     private void onInitialize(SessionInitializeEvent event) {
@@ -66,7 +80,7 @@ public final class GeyserOnlineSessionBridge implements AutoCloseable {
             held = authBridge.hold(handle, xuid);
         } catch (Throwable throwable) {
             logger.log(Level.SEVERE, "BedrockPassport could not hold the Geyser online-auth session for XUID " + xuid, throwable);
-            authBridge.disconnectRaw(handle, "§bBedrockPassport §8» §fGeyser must use Java auth-type online for this Passport mode.");
+            authBridge.disconnectRaw(handle, "§bBedrockPassport §8» §fCould not prepare Geyser online authentication for this Passport session.");
             return;
         }
 

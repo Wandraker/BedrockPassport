@@ -253,7 +253,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             nextCredentialVault = new CredentialVault(getDataFolder().toPath().resolve("credentials.key"));
 
             GeyserPendingSessionBridge pendingBridge = new GeyserPendingSessionBridge(geyserPlugin, false);
-            nextOnlineAuthBridge = new GeyserOnlineAuthBridge(geyserPlugin);
+            nextOnlineAuthBridge = new GeyserOnlineAuthBridge(geyserPlugin, getLogger());
             nextOnlineGate = new OnlineIdentityGate(
                     nextRepository,
                     nextCredentialVault,
@@ -296,7 +296,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
 
             getLogger().info("BedrockPassport enabled in JAVA_ACCOUNT development mode.");
             getLogger().info("BedrockPassport identity provider: " + IdentityProviderType.JAVA_ACCOUNT.storageKey() + ".");
-            getLogger().info("BedrockPassport requires Geyser Java auth-type online for this runtime.");
+            getLogger().info("BedrockPassport enforces Geyser Java auth-type online while JAVA_ACCOUNT mode is active.");
             getLogger().info("Verified Java auth chains are stored encrypted in passport.db using plugins/BedrockPassport/credentials.key.");
         } catch (Throwable exception) {
             if (nextOnlineSessionBridge != null) {

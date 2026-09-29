@@ -16,9 +16,15 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+import java.util.logging.Logger;
 
 public final class GeyserOnlineAuthBridge implements AutoCloseable {
     private final Object geyser;
+    private final Logger logger;
+    private final Method geyserConfig;
+    private final Method configJava;
+    private final Method javaConfigAuthTypeGetter;
+    private final Method javaConfigAuthTypeSetter;
     private final Method sessionRemoteServerGetter;
     private final Method sessionRemoteServerSetter;
     private final Method sessionExecuteInEventLoop;
@@ -57,11 +63,14 @@ public final class GeyserOnlineAuthBridge implements AutoCloseable {
 
     private final Map<Object, HeldSession> heldBySession = new ConcurrentHashMap<>();
 
-    public GeyserOnlineAuthBridge(Plugin geyserPlugin) throws ReflectiveOperationException {
+    public GeyserOnlineAuthBridge(Plugin geyserPlugin, Logger logger) throws ReflectiveOperationException {
         Objects.requireNonNull(geyserPlugin, "geyserPlugin");
+        this.logger = Objects.requireNonNull(logger, "logger");
         ClassLoader loader = geyserPlugin.getClass().getClassLoader();
 
         Class<?> geyserImplClass = Class.forName("org.geysermc.geyser.GeyserImpl", true, loader);
+        Class<?> geyserConfigClass = Class.forName("org.geysermc.geyser.configuration.GeyserConfig", true, loader);
+        Class<?> javaConfigClass = Class.forName("org.geysermc.geyser.configuration.GeyserConfig$JavaConfig", true, loader);
         Class<?> sessionClass = Class.forName("org.geysermc.geyser.session.GeyserSession", true, loader);
         Class<?> pendingClass = Class.forName("org.geysermc.geyser.session.PendingMicrosoftAuthentication", true, loader);
         Class<?> taskClass = Class.forName("org.geysermc.geyser.session.PendingMicrosoftAuthentication$AuthenticationTask", true, loader);
@@ -75,6 +84,11 @@ public final class GeyserOnlineAuthBridge implements AutoCloseable {
         Class<?> minecraftProtocolClass = Class.forName("org.geysermc.mcprotocollib.protocol.MinecraftProtocol", true, loader);
 
         this.geyser = geyserImplClass.getMethod("getInstance").invoke(null);
+        this.geyserConfig = geyserImplClass.getMethod("config");
+        this.configJava = geyserConfigClass.getMethod("java");
+        this.javaConfigAuthTypeGetter = javaConfigClass.getMethod("authType");
+        this.javaConfigAuthTypeSetter = javaConfigClass.getMethod("authType", AuthType.class);
+
         this.sessionRemoteServerGetter = sessionClass.getMethod("remoteServer");
         this.sessionRemoteServerSetter = sessionClass.getMethod("remoteServer", RemoteServer.class);
         this.sessionExecuteInEventLoop = sessionClass.getMethod("executeInEventLoop", Runnable.class);
@@ -126,28 +140,75 @@ public final class GeyserOnlineAuthBridge implements AutoCloseable {
         this.minecraftProtocolConstructor = minecraftProtocolClass.getConstructor(gameProfileClass, String.class);
     }
 
+    public AuthType ensureConfiguredOnline(String phase) {
+        try {
+            AuthType before = configuredAuthType();
+            if (before != AuthType.ONLINE) {
+                Object config = geyserConfig.invoke(geyser);
+                Object javaConfig = configJava.invoke(config);
+                javaConfigAuthTypeSetter.invoke(javaConfig, AuthType.ONLINE);
+            }
+
+            AuthType after = configuredAuthType();
+            if (after != AuthType.ONLINE) {
+                throw new IllegalStateException("Geyser Java auth-type could not be forced to online");
+            }
+
+            if (before != after) {
+                logger.warning(
+                        "BedrockPassport changed Geyser Java auth-type from " + before.name().toLowerCase() +
+                        " to online for JAVA_ACCOUNT mode (" + phase + ")."
+                );
+            } else {
+                logger.info(
+                        "BedrockPassport Geyser Java auth-type check: " +
+                        after.name().toLowerCase() + " (" + phase + ")."
+                );
+            }
+            return after;
+        } catch (Throwable throwable) {
+            throw bridgeFailure(throwable);
+        }
+    }
+
     public HeldSession hold(GeyserPendingSessionBridge.SessionHandle handle, String xuid) {
         Objects.requireNonNull(handle, "handle");
         Objects.requireNonNull(xuid, "xuid");
         Object session = handle.session();
         try {
-            RemoteServer original = (RemoteServer) sessionRemoteServerGetter.invoke(session);
-            if (original == null || original.authType() != AuthType.ONLINE) {
-                throw new IllegalStateException("Geyser Java auth-type must be online for BedrockPassport JAVA_ACCOUNT mode");
+            AuthType configuredBefore = configuredAuthType();
+            AuthType configuredAfter = ensureConfiguredOnline("session-initialize");
+
+            RemoteServer observedRemote = (RemoteServer) sessionRemoteServerGetter.invoke(session);
+            if (observedRemote == null) {
+                throw new IllegalStateException("Geyser session has no Java remote server");
             }
+
+            AuthType observedAuthType = observedRemote.authType();
+            RemoteServer backendRemote = observedAuthType == AuthType.ONLINE
+                    ? observedRemote
+                    : new OnlineRemoteServer(observedRemote);
+
+            logger.info(
+                    "BedrockPassport online handoff: configured=" +
+                    configuredBefore.name().toLowerCase() + "->" +
+                    configuredAfter.name().toLowerCase() +
+                    ", session=" + observedAuthType.name().toLowerCase() +
+                    "->" + backendRemote.authType().name().toLowerCase() + "."
+            );
 
             String bedrockUsername = (String) sessionBedrockUsername.invoke(session);
             String previousSavedChain = removeGeyserSavedChain(bedrockUsername);
             cancelPendingAuthentication(xuid);
 
-            HeldSession held = new HeldSession(handle, xuid, bedrockUsername, original, previousSavedChain);
+            HeldSession held = new HeldSession(handle, xuid, bedrockUsername, backendRemote, previousSavedChain);
             HeldSession previous = heldBySession.putIfAbsent(session, held);
             if (previous != null) {
                 restoreGeyserSavedChain(bedrockUsername, previousSavedChain);
                 throw new IllegalStateException("Geyser session is already held by BedrockPassport");
             }
 
-            sessionRemoteServerSetter.invoke(session, new MaskedRemoteServer(original));
+            sessionRemoteServerSetter.invoke(session, new MaskedRemoteServer(backendRemote));
             return held;
         } catch (Throwable throwable) {
             throw bridgeFailure(throwable);
@@ -380,8 +441,14 @@ public final class GeyserOnlineAuthBridge implements AutoCloseable {
         }
     }
 
+    private AuthType configuredAuthType() throws ReflectiveOperationException {
+        Object config = geyserConfig.invoke(geyser);
+        Object javaConfig = configJava.invoke(config);
+        return (AuthType) javaConfigAuthTypeGetter.invoke(javaConfig);
+    }
+
     private void restoreOriginalState(HeldSession held) throws ReflectiveOperationException {
-        sessionRemoteServerSetter.invoke(held.handle().session(), held.originalRemoteServer());
+        sessionRemoteServerSetter.invoke(held.handle().session(), held.backendRemoteServer());
         restoreGeyserSavedChain(held.bedrockUsername(), held.previousGeyserAuthChain());
     }
 
@@ -428,7 +495,7 @@ public final class GeyserOnlineAuthBridge implements AutoCloseable {
             GeyserPendingSessionBridge.SessionHandle handle,
             String xuid,
             String bedrockUsername,
-            RemoteServer originalRemoteServer,
+            RemoteServer backendRemoteServer,
             String previousGeyserAuthChain
     ) {
     }
@@ -439,6 +506,38 @@ public final class GeyserOnlineAuthBridge implements AutoCloseable {
             String authChain,
             Object protocol
     ) {
+    }
+
+    private record OnlineRemoteServer(RemoteServer delegate) implements RemoteServer {
+        @Override
+        public String address() {
+            return delegate.address();
+        }
+
+        @Override
+        public int port() {
+            return delegate.port();
+        }
+
+        @Override
+        public int protocolVersion() {
+            return delegate.protocolVersion();
+        }
+
+        @Override
+        public String minecraftVersion() {
+            return delegate.minecraftVersion();
+        }
+
+        @Override
+        public AuthType authType() {
+            return AuthType.ONLINE;
+        }
+
+        @Override
+        public boolean resolveSrv() {
+            return delegate.resolveSrv();
+        }
     }
 
     private record MaskedRemoteServer(RemoteServer delegate) implements RemoteServer {
