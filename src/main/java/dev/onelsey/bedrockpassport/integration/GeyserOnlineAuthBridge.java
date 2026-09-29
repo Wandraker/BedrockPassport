@@ -67,6 +67,9 @@ public final class GeyserOnlineAuthBridge implements AutoCloseable {
         Class<?> taskClass = Class.forName("org.geysermc.geyser.session.PendingMicrosoftAuthentication$AuthenticationTask", true, loader);
         Class<?> loginEncryptionUtilsClass = Class.forName("org.geysermc.geyser.util.LoginEncryptionUtils", true, loader);
         Class<?> javaAuthManagerClass = Class.forName("net.raphimc.minecraftauth.java.JavaAuthManager", true, loader);
+        Class<?> minecraftProfileClass = Class.forName("net.raphimc.minecraftauth.java.model.MinecraftProfile", true, loader);
+        Class<?> minecraftTokenClass = Class.forName("net.raphimc.minecraftauth.java.model.MinecraftToken", true, loader);
+        Class<?> httpClientClass = Class.forName("net.lenni0451.commons.httpclient.HttpClient", true, loader);
         this.jsonObjectClass = Class.forName("com.google.gson.JsonObject", true, loader);
         Class<?> gameProfileClass = Class.forName("org.geysermc.mcprotocollib.auth.GameProfile", true, loader);
         Class<?> minecraftProtocolClass = Class.forName("org.geysermc.mcprotocollib.protocol.MinecraftProtocol", true, loader);
@@ -105,21 +108,19 @@ public final class GeyserOnlineAuthBridge implements AutoCloseable {
         Field authClientField = pendingClass.getField("AUTH_CLIENT");
         this.authClient = authClientField.get(null);
 
-        this.authManagerFromJson = findStaticMethod(javaAuthManagerClass, "fromJson", 2);
-        this.authManagerToJson = findStaticMethod(javaAuthManagerClass, "toJson", 1);
+        this.authManagerFromJson = javaAuthManagerClass.getMethod("fromJson", httpClientClass, jsonObjectClass);
+        this.authManagerToJson = javaAuthManagerClass.getMethod("toJson", javaAuthManagerClass);
         this.authManagerGetProfile = javaAuthManagerClass.getMethod("getMinecraftProfile");
         this.authManagerGetToken = javaAuthManagerClass.getMethod("getMinecraftToken");
 
-        Class<?> profileStepClass = authManagerGetProfile.getReturnType();
-        Class<?> tokenStepClass = authManagerGetToken.getReturnType();
-        this.profileStepGetUpToDate = profileStepClass.getMethod("getUpToDate");
-        this.tokenStepGetUpToDate = tokenStepClass.getMethod("getUpToDate");
+        Class<?> profileHolderClass = authManagerGetProfile.getReturnType();
+        Class<?> tokenHolderClass = authManagerGetToken.getReturnType();
+        this.profileStepGetUpToDate = profileHolderClass.getMethod("getUpToDate");
+        this.tokenStepGetUpToDate = tokenHolderClass.getMethod("getUpToDate");
 
-        Class<?> profileClass = profileStepGetUpToDate.getReturnType();
-        Class<?> tokenClass = tokenStepGetUpToDate.getReturnType();
-        this.profileGetId = profileClass.getMethod("getId");
-        this.profileGetName = profileClass.getMethod("getName");
-        this.tokenGetToken = tokenClass.getMethod("getToken");
+        this.profileGetId = minecraftProfileClass.getMethod("getId");
+        this.profileGetName = minecraftProfileClass.getMethod("getName");
+        this.tokenGetToken = minecraftTokenClass.getMethod("getToken");
 
         this.gameProfileConstructor = gameProfileClass.getConstructor(UUID.class, String.class);
         this.minecraftProtocolConstructor = minecraftProtocolClass.getConstructor(gameProfileClass, String.class);
