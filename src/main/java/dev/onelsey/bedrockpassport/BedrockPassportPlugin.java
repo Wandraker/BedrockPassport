@@ -301,7 +301,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             onlineRuntime = true;
             identityProviderType = IdentityProviderType.JAVA_ACCOUNT;
 
-            getLogger().info("BedrockPassport enabled in JAVA_ACCOUNT development mode.");
+            getLogger().info("BedrockPassport enabled in JAVA_ACCOUNT mode.");
             getLogger().info("BedrockPassport identity provider: " + IdentityProviderType.JAVA_ACCOUNT.storageKey() + ".");
             getLogger().info("BedrockPassport enforces Geyser Java auth-type online while JAVA_ACCOUNT mode is active.");
             if (nextFloodgateOnlineIsolation.isolated()) {

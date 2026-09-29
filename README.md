@@ -1,12 +1,15 @@
 # BedrockPassport
 
-BedrockPassport gives Bedrock players persistent Java-side server identities before backend login when joining through Geyser and Floodgate.
+BedrockPassport gives Bedrock players persistent Java-side identities before backend login when joining through Geyser.
 
-A Bedrock/Xbox account can save multiple Java-style usernames in a native Bedrock selector. The selected username and matching offline UUID are applied before the backend player is created, so the server sees that Java identity from the beginning of the session.
+A Bedrock/Xbox account can keep multiple selectable identities. BedrockPassport automatically uses the identity model that matches the backend:
 
-BedrockPassport is **not** an authentication plugin. Saved Passport entries are identity shortcuts, not ownership claims. Passwords, `/login`, `/register`, PINs, 2FA and account ownership remain the responsibility of the server's authentication layer.
+- `online-mode=false` → `LOCAL`: saved server usernames with deterministic offline UUIDs, handed to the backend through Floodgate
+- `online-mode=true` → `JAVA_ACCOUNT`: verified Microsoft/Minecraft Java accounts with their real Java username and UUID
 
-> **Development branch note:** `dev/1.1.0-online-mode` now contains an experimental `JAVA_ACCOUNT` runtime for `online-mode=true`. It uses Geyser's Microsoft/Java authentication machinery, stores saved auth chains encrypted with a server-local AES-GCM key, and is intentionally **not yet a stable support claim** until real-account runtime testing passes.
+The selector runs before the Java backend player is created, so inventory, permissions, statistics, claims and other UUID-bound server data belong to the selected identity from the beginning of the session.
+
+In `LOCAL` mode BedrockPassport is **not** the authentication layer: saved names are identity shortcuts and a server authentication plugin still decides who may use them. In `JAVA_ACCOUNT` mode the selected Java account is verified through Microsoft's/Minecraft's authentication flow before the online-mode backend connection is created.
 
 ## Requirements
 
@@ -22,7 +25,7 @@ BedrockPassport is **not** an authentication plugin. Saved Passport entries are 
 - Floodgate
 - Geyser using Floodgate authentication
 
-### Experimental JAVA_ACCOUNT mode
+### JAVA_ACCOUNT mode
 
 - `online-mode=true`
 - Geyser Java authentication is forced to `online` while this runtime is active
@@ -35,6 +38,8 @@ Folia support is **not currently claimed**.
 
 ## Player flow
 
+### LOCAL mode
+
 First connection:
 
 ```text
@@ -42,9 +47,9 @@ Bedrock/Xbox XUID
         ↓
 Geyser holding environment
         ↓
-Choose a Java username
+Choose a server username
         ↓
-BedrockPassport resolves the Java identity
+BedrockPassport resolves the offline Java identity
         ↓
 Floodgate backend login using that username + offline UUID
         ↓
@@ -65,12 +70,44 @@ Geyser holding environment
 [ ＋ Add account  ]
 [ ⚙ Manage accounts ]
         ↓
-selected Java identity
+selected LOCAL identity
 ```
 
-Removing an entry only removes the shortcut from that Bedrock Passport. It does not delete passwords, player data, inventory, permissions, statistics or logs.
+### JAVA_ACCOUNT mode
 
-Different Bedrock/Xbox accounts may save the same Java username. This is intentional: BedrockPassport selects an identity, while the authentication system decides who is allowed to use it.
+First connection:
+
+```text
+Bedrock/Xbox XUID
+        ↓
+BedrockPassport selector
+        ↓
+＋ Add Java account
+        ↓
+Microsoft device-code authentication through Geyser
+        ↓
+verified Java username + real Java UUID
+        ↓
+online-mode backend login as that Java account
+```
+
+Returning connection:
+
+```text
+Bedrock/Xbox XUID
+        ↓
+BedrockPassport selector
+        ↓
+select saved Java account
+        ↓
+encrypted saved auth chain is refreshed
+        ↓
+online-mode backend login as the same real Java profile
+```
+
+Removing an entry only removes it from that Bedrock Passport. It does not delete Java/Microsoft accounts, passwords, player data, inventory, permissions, statistics or logs.
+
+Different Bedrock/Xbox accounts may save the same LOCAL username. This is intentional: in LOCAL mode BedrockPassport selects an identity while the server authentication system decides who is allowed to use it. JAVA_ACCOUNT entries are tied to the verified Java UUID returned by Microsoft/Minecraft authentication.
 
 ## Java identity and UUID behavior
 
@@ -80,9 +117,13 @@ A Java client and a Bedrock client using the same username can therefore resolve
 
 The stable LOCAL provider uses the standard offline UUID model and does not treat a selected name as proof of ownership.
 
-The experimental JAVA_ACCOUNT provider is different: BedrockPassport asks Geyser's Microsoft/Minecraft authentication stack to verify the Java account, stores the real Java UUID/name and reconnects using a refreshed authenticated Java profile. The two providers intentionally remain separate.
+The JAVA_ACCOUNT provider is different: BedrockPassport asks Geyser's Microsoft/Minecraft authentication stack to verify the Java account, stores the real Java UUID/name and reconnects using a refreshed authenticated Java profile. The two providers intentionally remain separate.
 
 ## Authentication compatibility and trust
+
+The trust model depends on the active provider.
+
+### LOCAL trust model
 
 BedrockPassport briefly uses Floodgate's linked-profile transport during the handshake so the backend can be created with the selected Java username and UUID.
 
@@ -96,6 +137,12 @@ Before normal Bukkit authentication plugins make their login decision, BedrockPa
 - `getLinkedPlayer()` is `null`
 
 This prevents a saved Passport entry from being presented as proof that the Bedrock user owns that Java/server account.
+
+### JAVA_ACCOUNT trust model
+
+JAVA_ACCOUNT entries are created only after Microsoft/Minecraft authentication succeeds. BedrockPassport stores the verified Java username and UUID and uses the refreshed authenticated Java profile for the online-mode backend connection.
+
+The saved authentication chain is encrypted with AES-GCM in `passport.db`; the encryption key is stored separately in `plugins/BedrockPassport/credentials.key`. Back up both together and treat both files as security-sensitive server data.
 
 ### AuthMeReloaded
 
@@ -229,7 +276,7 @@ Reload is refused while an identity selector or protected login reservation is s
 
 1. Install Geyser-Spigot.
 2. For LOCAL mode, install Floodgate and use `online-mode=false`.
-3. For experimental JAVA_ACCOUNT mode, use `online-mode=true`; Floodgate may remain installed.
+3. For JAVA_ACCOUNT mode, use `online-mode=true`; Floodgate may remain installed.
 4. Put BedrockPassport in the server's `plugins` directory.
 5. Start the server.
 
@@ -302,64 +349,27 @@ compatibility:
 Set `identity.max-accounts-per-xuid` to `0` or a negative value for no Passport-side account-count limit.
 
 
-## Experimental online-mode test flow
+## Online-mode integration
 
-This section applies only to the `dev/1.1.0-online-mode` branch.
+With `online-mode=true`, BedrockPassport activates the `JAVA_ACCOUNT` provider automatically.
 
-Server setup:
+On integrated plugin platforms, Geyser can auto-select Floodgate authentication when Floodgate is installed. BedrockPassport reasserts Geyser's runtime Java authentication type as `online` for JAVA_ACCOUNT sessions.
 
-```text
-server.properties:
-online-mode=true
-```
+Floodgate itself also installs a server-side Netty login handler. A verified Java login does not contain Floodgate player data, so BedrockPassport temporarily suspends Floodgate's removable Spigot packet injector while JAVA_ACCOUNT mode is active and restores it when the Passport runtime stops. Floodgate can therefore remain installed without intercepting verified online Java logins.
 
-On integrated plugin platforms, Geyser currently auto-selects Floodgate authentication when the Floodgate plugin is installed, even if the file contains `java.auth-type: online`. BedrockPassport detects this in `JAVA_ACCOUNT` mode and reasserts Geyser's runtime Java auth type as `online` after Geyser initializes and again when a Bedrock session is prepared.
-
-Floodgate itself also installs a server-side Netty login handler. A verified Java login does not contain Floodgate player data, so that handler must not process the JAVA_ACCOUNT backend connection. BedrockPassport suspends Floodgate's removable Spigot packet injection while JAVA_ACCOUNT mode is active and restores it when the Passport runtime stops. Floodgate can therefore remain installed.
-
-For the cleanest first test, do not rely on Geyser's own `saved-user-logins` entry for the Bedrock gamertag being tested. BedrockPassport temporarily isolates any already-cached Geyser auth chain for the held session, but a clean Geyser online-auth setup makes failures easier to diagnose.
-
-Expected first join:
+Saved Java authentication chains are kept in:
 
 ```text
-Bedrock/Xbox login
-        ↓
-BedrockPassport selector
-        ↓
-＋ Add Java account
-        ↓
-Microsoft device-code form from Geyser
-        ↓
-sign in with a Microsoft account that owns Java Edition
-        ↓
-verified Java username + real Java UUID are saved
-        ↓
-backend online-mode login as that Java account
+plugins/BedrockPassport/passport.db
 ```
 
-Expected reconnect:
-
-```text
-Bedrock/Xbox login
-        ↓
-BedrockPassport selector
-        ↓
-select saved Java account
-        ↓
-stored auth chain is decrypted and refreshed
-        ↓
-backend login as the same real Java profile
-```
-
-The encrypted auth chain is stored in `passport.db`. The AES-GCM key is stored separately at:
+The AES-GCM encryption key is kept separately in:
 
 ```text
 plugins/BedrockPassport/credentials.key
 ```
 
-Back up both files together. Possession of the server files and key is security-sensitive.
-
-For the first runtime test, capture the complete startup + join log and verify the backend username/UUID. If first join works, disconnect and reconnect once to verify the stored credential refresh path.
+The first account connection requires Microsoft device-code authentication. Later connections can select the saved Java account and reuse a refreshed authenticated chain without repeating the device-code flow unless re-authentication is required.
 
 ## Compatibility and maintenance
 

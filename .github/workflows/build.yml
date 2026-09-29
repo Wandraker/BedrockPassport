@@ -1,9 +1,12 @@
-name: BedrockPassport Dev Build
+name: BedrockPassport Build
 
 on:
   push:
     branches:
-      - dev/1.1.0-online-mode
+      - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -27,10 +30,10 @@ jobs:
       - name: Build
         run: gradle clean build --stacktrace
 
-      - name: Upload dev artifact
+      - name: Upload artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: BedrockPassport-dev
+          name: BedrockPassport
           path: build/libs/*.jar
           if-no-files-found: error
