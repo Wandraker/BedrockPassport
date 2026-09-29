@@ -10,6 +10,7 @@ import dev.onelsey.bedrockpassport.identity.IdentityProviderType;
 import dev.onelsey.bedrockpassport.identity.LocalIdentityProvider;
 import dev.onelsey.bedrockpassport.integration.FloodgateIdentityBridge;
 import dev.onelsey.bedrockpassport.integration.FloodgateSkinPolicy;
+import dev.onelsey.bedrockpassport.integration.FloodgateOnlineIsolation;
 import dev.onelsey.bedrockpassport.integration.GeyserOnlineAuthBridge;
 import dev.onelsey.bedrockpassport.integration.GeyserOnlineSessionBridge;
 import dev.onelsey.bedrockpassport.integration.GeyserPendingSessionBridge;
@@ -33,6 +34,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     private GeyserSessionLifecycleBridge geyserLifecycleBridge;
     private SessionGuard sessionGuard;
     private OnlineIdentityGate onlineGate;
+    private FloodgateOnlineIsolation floodgateOnlineIsolation;
     private GeyserOnlineAuthBridge onlineAuthBridge;
     private GeyserOnlineSessionBridge onlineSessionBridge;
     private CredentialVault credentialVault;
@@ -239,6 +241,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
 
         IdentityRepository nextRepository = null;
         CredentialVault nextCredentialVault = null;
+        FloodgateOnlineIsolation nextFloodgateOnlineIsolation = null;
         GeyserOnlineAuthBridge nextOnlineAuthBridge = null;
         OnlineIdentityGate nextOnlineGate = null;
         GeyserOnlineSessionBridge nextOnlineSessionBridge = null;
@@ -251,6 +254,9 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             NameCollisionPolicy nameCollisionPolicy = new NameCollisionPolicy(caseInsensitiveNames);
             nextRepository = new IdentityRepository(getDataFolder().toPath().resolve("passport.db"), nameCollisionPolicy);
             nextCredentialVault = new CredentialVault(getDataFolder().toPath().resolve("credentials.key"));
+
+            Plugin floodgatePlugin = getServer().getPluginManager().getPlugin("floodgate");
+            nextFloodgateOnlineIsolation = new FloodgateOnlineIsolation(floodgatePlugin, getLogger());
 
             GeyserPendingSessionBridge pendingBridge = new GeyserPendingSessionBridge(geyserPlugin, false);
             nextOnlineAuthBridge = new GeyserOnlineAuthBridge(geyserPlugin, getLogger());
@@ -288,6 +294,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
 
             repository = nextRepository;
             credentialVault = nextCredentialVault;
+            floodgateOnlineIsolation = nextFloodgateOnlineIsolation;
             onlineAuthBridge = nextOnlineAuthBridge;
             onlineGate = nextOnlineGate;
             onlineSessionBridge = nextOnlineSessionBridge;
@@ -297,6 +304,9 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             getLogger().info("BedrockPassport enabled in JAVA_ACCOUNT development mode.");
             getLogger().info("BedrockPassport identity provider: " + IdentityProviderType.JAVA_ACCOUNT.storageKey() + ".");
             getLogger().info("BedrockPassport enforces Geyser Java auth-type online while JAVA_ACCOUNT mode is active.");
+            if (nextFloodgateOnlineIsolation.isolated()) {
+                getLogger().info("BedrockPassport isolated Floodgate packet handling from JAVA_ACCOUNT backend logins.");
+            }
             getLogger().info("Verified Java auth chains are stored encrypted in passport.db using plugins/BedrockPassport/credentials.key.");
         } catch (Throwable exception) {
             if (nextOnlineSessionBridge != null) {
@@ -307,6 +317,9 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             }
             if (nextOnlineAuthBridge != null) {
                 nextOnlineAuthBridge.close();
+            }
+            if (nextFloodgateOnlineIsolation != null) {
+                nextFloodgateOnlineIsolation.close();
             }
             if (nextRepository != null) {
                 nextRepository.close();
@@ -350,6 +363,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         IdentityGate oldGate = gate;
         SessionGuard oldGuard = sessionGuard;
         OnlineIdentityGate oldOnlineGate = onlineGate;
+        FloodgateOnlineIsolation oldFloodgateOnlineIsolation = floodgateOnlineIsolation;
         GeyserOnlineAuthBridge oldOnlineAuthBridge = onlineAuthBridge;
         GeyserOnlineSessionBridge oldOnlineSessionBridge = onlineSessionBridge;
         IdentityRepository oldRepository = repository;
@@ -361,6 +375,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         gate = null;
         sessionGuard = null;
         onlineGate = null;
+        floodgateOnlineIsolation = null;
         onlineAuthBridge = null;
         onlineSessionBridge = null;
         credentialVault = null;
@@ -376,6 +391,9 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         }
         if (oldOnlineAuthBridge != null) {
             oldOnlineAuthBridge.close();
+        }
+        if (oldFloodgateOnlineIsolation != null) {
+            oldFloodgateOnlineIsolation.close();
         }
         if (oldGeyserLifecycleBridge != null) {
             oldGeyserLifecycleBridge.close();

@@ -27,6 +27,7 @@ BedrockPassport is **not** an authentication plugin. Saved Passport entries are 
 - `online-mode=true`
 - Geyser Java authentication is forced to `online` while this runtime is active
 - Floodgate is not required for the Java-account handoff and may remain installed
+- When Floodgate is installed on the same server, BedrockPassport temporarily suspends its server packet injector in JAVA_ACCOUNT mode so a real online Java login is not interpreted as a Floodgate login
 
 BedrockPassport performs a startup capability check for the Geyser pre-backend bridge it needs. If a required integration point is unavailable, the plugin fails closed instead of allowing an incomplete identity handoff.
 
@@ -312,7 +313,9 @@ server.properties:
 online-mode=true
 ```
 
-On integrated plugin platforms, Geyser currently auto-selects Floodgate authentication when the Floodgate plugin is installed, even if the file contains `java.auth-type: online`. BedrockPassport detects this in `JAVA_ACCOUNT` mode and reasserts Geyser's runtime Java auth type as `online` after Geyser initializes and again when a Bedrock session is prepared. Floodgate can therefore remain installed.
+On integrated plugin platforms, Geyser currently auto-selects Floodgate authentication when the Floodgate plugin is installed, even if the file contains `java.auth-type: online`. BedrockPassport detects this in `JAVA_ACCOUNT` mode and reasserts Geyser's runtime Java auth type as `online` after Geyser initializes and again when a Bedrock session is prepared.
+
+Floodgate itself also installs a server-side Netty login handler. A verified Java login does not contain Floodgate player data, so that handler must not process the JAVA_ACCOUNT backend connection. BedrockPassport suspends Floodgate's removable Spigot packet injection while JAVA_ACCOUNT mode is active and restores it when the Passport runtime stops. Floodgate can therefore remain installed.
 
 For the cleanest first test, do not rely on Geyser's own `saved-user-logins` entry for the Bedrock gamertag being tested. BedrockPassport temporarily isolates any already-cached Geyser auth chain for the held session, but a clean Geyser online-auth setup makes failures easier to diagnose.
 
