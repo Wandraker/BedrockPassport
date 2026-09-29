@@ -5,15 +5,19 @@ import dev.onelsey.bedrockpassport.config.ConfigMigrator;
 import dev.onelsey.bedrockpassport.data.IdentityRepository;
 import dev.onelsey.bedrockpassport.gate.GateMessages;
 import dev.onelsey.bedrockpassport.gate.IdentityGate;
+import dev.onelsey.bedrockpassport.gate.OnlineIdentityGate;
 import dev.onelsey.bedrockpassport.identity.IdentityProviderType;
 import dev.onelsey.bedrockpassport.identity.LocalIdentityProvider;
 import dev.onelsey.bedrockpassport.integration.FloodgateIdentityBridge;
 import dev.onelsey.bedrockpassport.integration.FloodgateSkinPolicy;
+import dev.onelsey.bedrockpassport.integration.GeyserOnlineAuthBridge;
+import dev.onelsey.bedrockpassport.integration.GeyserOnlineSessionBridge;
 import dev.onelsey.bedrockpassport.integration.GeyserPendingSessionBridge;
 import dev.onelsey.bedrockpassport.integration.GeyserSessionLifecycleBridge;
 import dev.onelsey.bedrockpassport.integration.ServerLoginReadTimeoutGuard;
 import dev.onelsey.bedrockpassport.integration.UntrustedFloodgateIdentityBridge;
 import dev.onelsey.bedrockpassport.name.NamePolicy;
+import dev.onelsey.bedrockpassport.security.CredentialVault;
 import dev.onelsey.bedrockpassport.security.NameCollisionPolicy;
 import dev.onelsey.bedrockpassport.security.SessionGuard;
 import org.bukkit.command.PluginCommand;
@@ -28,6 +32,11 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     private UntrustedFloodgateIdentityBridge untrustedIdentityBridge;
     private GeyserSessionLifecycleBridge geyserLifecycleBridge;
     private SessionGuard sessionGuard;
+    private OnlineIdentityGate onlineGate;
+    private GeyserOnlineAuthBridge onlineAuthBridge;
+    private GeyserOnlineSessionBridge onlineSessionBridge;
+    private CredentialVault credentialVault;
+    private boolean onlineRuntime;
     private IdentityProviderType identityProviderType;
 
     @Override
@@ -51,21 +60,23 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         try {
             startRuntime();
         } catch (Throwable exception) {
-            failEnable("BedrockPassport could not initialize its Geyser/Floodgate identity bridge.", exception);
+            failEnable("BedrockPassport could not initialize its identity runtime.", exception);
         }
     }
 
     private void startRuntime() throws Exception {
         if (getServer().getOnlineMode()) {
-            throw new IllegalStateException(
-                    "BedrockPassport 1.1.0-dev has provider-aware storage, but the JAVA_ACCOUNT runtime is not enabled yet. " +
-                    "Use the stable LOCAL flow on online-mode=false until the Geyser online-auth bridge is implemented and verified."
-            );
+            startOnlineRuntime();
+            return;
         }
 
         Plugin geyserPlugin = getServer().getPluginManager().getPlugin("Geyser-Spigot");
         if (geyserPlugin == null || !geyserPlugin.isEnabled()) {
             throw new IllegalStateException("Geyser-Spigot is required and must be enabled before BedrockPassport");
+        }
+        Plugin floodgatePlugin = getServer().getPluginManager().getPlugin("floodgate");
+        if (floodgatePlugin == null || !floodgatePlugin.isEnabled()) {
+            throw new IllegalStateException("Floodgate is required for the LOCAL BedrockPassport runtime on online-mode=false");
         }
 
         IdentityRepository nextRepository = null;
@@ -182,6 +193,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             skinPolicy = nextSkinPolicy;
             untrustedIdentityBridge = nextUntrustedIdentityBridge;
             geyserLifecycleBridge = nextGeyserLifecycleBridge;
+            onlineRuntime = false;
             identityProviderType = identityProvider.type();
 
             getLogger().info("BedrockPassport enabled. Geyser pending-session bridge capability check passed.");
@@ -211,6 +223,90 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             }
             if (nextSessionGuard != null) {
                 nextSessionGuard.close();
+            }
+            if (nextRepository != null) {
+                nextRepository.close();
+            }
+            throw exception;
+        }
+    }
+
+    private void startOnlineRuntime() throws Exception {
+        Plugin geyserPlugin = getServer().getPluginManager().getPlugin("Geyser-Spigot");
+        if (geyserPlugin == null || !geyserPlugin.isEnabled()) {
+            throw new IllegalStateException("Geyser-Spigot is required and must be enabled before BedrockPassport");
+        }
+
+        IdentityRepository nextRepository = null;
+        CredentialVault nextCredentialVault = null;
+        GeyserOnlineAuthBridge nextOnlineAuthBridge = null;
+        OnlineIdentityGate nextOnlineGate = null;
+        GeyserOnlineSessionBridge nextOnlineSessionBridge = null;
+
+        try {
+            boolean caseInsensitiveNames = getConfig().getBoolean("security.case-insensitive-bedrock-names", true);
+            long inactivityTimeoutSeconds = getConfig().getLong("identity.inactivity-timeout-seconds", 60L);
+            long holdingWorldInitTimeoutSeconds = getConfig().getLong("compatibility.holding-world-init-timeout-seconds", 10L);
+
+            NameCollisionPolicy nameCollisionPolicy = new NameCollisionPolicy(caseInsensitiveNames);
+            nextRepository = new IdentityRepository(getDataFolder().toPath().resolve("passport.db"), nameCollisionPolicy);
+            nextCredentialVault = new CredentialVault(getDataFolder().toPath().resolve("credentials.key"));
+
+            GeyserPendingSessionBridge pendingBridge = new GeyserPendingSessionBridge(geyserPlugin, false);
+            nextOnlineAuthBridge = new GeyserOnlineAuthBridge(geyserPlugin);
+            nextOnlineGate = new OnlineIdentityGate(
+                    nextRepository,
+                    nextCredentialVault,
+                    pendingBridge,
+                    nextOnlineAuthBridge,
+                    getLogger(),
+                    getConfig().getInt("identity.max-accounts-per-xuid", 3),
+                    inactivityTimeoutSeconds,
+                    getConfig().getString("selector.title", "§l§bBedrockPassport"),
+                    "§fChoose a verified Java account.\n§7Microsoft/Minecraft authentication is required for new accounts.",
+                    getConfig().getString("selector.last-used-suffix", " §a✓"),
+                    "§a＋ Add Java account",
+                    "§e⚙ Manage Java accounts",
+                    "§l§bJava accounts",
+                    "§fManage verified Java accounts in this Bedrock Passport.\n§7Removing one only removes the saved sign-in from BedrockPassport.",
+                    getConfig().getString("manage.remove-prefix", "§c✕ "),
+                    getConfig().getString("manage.back", "§b← Back"),
+                    getConfig().getString("manage.confirm-title", "§l§cRemove account"),
+                    "§fRemove %account% from this Bedrock Passport?\n§7The Java/Microsoft account itself is not deleted.",
+                    getConfig().getString("manage.confirm-button", "§cRemove"),
+                    getConfig().getString("manage.cancel-button", "§bCancel")
+            );
+            nextOnlineSessionBridge = new GeyserOnlineSessionBridge(
+                    this,
+                    pendingBridge,
+                    nextOnlineAuthBridge,
+                    nextOnlineGate,
+                    getLogger(),
+                    holdingWorldInitTimeoutSeconds
+            );
+            nextOnlineSessionBridge.register();
+
+            repository = nextRepository;
+            credentialVault = nextCredentialVault;
+            onlineAuthBridge = nextOnlineAuthBridge;
+            onlineGate = nextOnlineGate;
+            onlineSessionBridge = nextOnlineSessionBridge;
+            onlineRuntime = true;
+            identityProviderType = IdentityProviderType.JAVA_ACCOUNT;
+
+            getLogger().info("BedrockPassport enabled in JAVA_ACCOUNT development mode.");
+            getLogger().info("BedrockPassport identity provider: " + IdentityProviderType.JAVA_ACCOUNT.storageKey() + ".");
+            getLogger().info("BedrockPassport requires Geyser Java auth-type online for this runtime.");
+            getLogger().info("Verified Java auth chains are stored encrypted in passport.db using plugins/BedrockPassport/credentials.key.");
+        } catch (Throwable exception) {
+            if (nextOnlineSessionBridge != null) {
+                nextOnlineSessionBridge.close();
+            }
+            if (nextOnlineGate != null) {
+                nextOnlineGate.close();
+            }
+            if (nextOnlineAuthBridge != null) {
+                nextOnlineAuthBridge.close();
             }
             if (nextRepository != null) {
                 nextRepository.close();
@@ -253,6 +349,9 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         GeyserSessionLifecycleBridge oldGeyserLifecycleBridge = geyserLifecycleBridge;
         IdentityGate oldGate = gate;
         SessionGuard oldGuard = sessionGuard;
+        OnlineIdentityGate oldOnlineGate = onlineGate;
+        GeyserOnlineAuthBridge oldOnlineAuthBridge = onlineAuthBridge;
+        GeyserOnlineSessionBridge oldOnlineSessionBridge = onlineSessionBridge;
         IdentityRepository oldRepository = repository;
 
         floodgateBridge = null;
@@ -261,9 +360,23 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         geyserLifecycleBridge = null;
         gate = null;
         sessionGuard = null;
+        onlineGate = null;
+        onlineAuthBridge = null;
+        onlineSessionBridge = null;
+        credentialVault = null;
         repository = null;
+        onlineRuntime = false;
         identityProviderType = null;
 
+        if (oldOnlineSessionBridge != null) {
+            oldOnlineSessionBridge.close();
+        }
+        if (oldOnlineGate != null) {
+            oldOnlineGate.close();
+        }
+        if (oldOnlineAuthBridge != null) {
+            oldOnlineAuthBridge.close();
+        }
         if (oldGeyserLifecycleBridge != null) {
             oldGeyserLifecycleBridge.close();
         }
@@ -288,17 +401,30 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     }
 
     public boolean runtimeReady() {
+        if (onlineRuntime) {
+            return repository != null && credentialVault != null && onlineGate != null
+                    && onlineAuthBridge != null && onlineSessionBridge != null
+                    && identityProviderType == IdentityProviderType.JAVA_ACCOUNT;
+        }
         return repository != null && gate != null && floodgateBridge != null && skinPolicy != null
                 && untrustedIdentityBridge != null && geyserLifecycleBridge != null && sessionGuard != null
-                && identityProviderType != null;
+                && identityProviderType == IdentityProviderType.LOCAL;
     }
 
     public int activeSelectionCount() {
+        OnlineIdentityGate currentOnline = onlineGate;
+        if (currentOnline != null) {
+            return currentOnline.activeSelectionCount();
+        }
         IdentityGate current = gate;
         return current == null ? 0 : current.activeSelectionCount();
     }
 
     public int trackedSessionCount() {
+        GeyserOnlineAuthBridge currentOnline = onlineAuthBridge;
+        if (currentOnline != null) {
+            return currentOnline.heldSessionCount();
+        }
         SessionGuard current = sessionGuard;
         return current == null ? 0 : current.trackedSessionCount();
     }
@@ -313,7 +439,14 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         return current == null ? "inactive" : current.storageKey();
     }
 
+    public String identityTrustName() {
+        return onlineRuntime ? "verified Java account" : "untrusted handoff";
+    }
+
     public String skinPolicyName() {
+        if (onlineRuntime) {
+            return "Geyser online profile";
+        }
         FloodgateSkinPolicy current = skinPolicy;
         return current == null ? "inactive" : current.policyName();
     }

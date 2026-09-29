@@ -6,7 +6,7 @@ A Bedrock/Xbox account can save multiple Java-style usernames in a native Bedroc
 
 BedrockPassport is **not** an authentication plugin. Saved Passport entries are identity shortcuts, not ownership claims. Passwords, `/login`, `/register`, PINs, 2FA and account ownership remain the responsibility of the server's authentication layer.
 
-> **Development branch note:** `dev/1.1.0-online-mode` introduces provider-aware identity storage as groundwork for verified Java-account identities. The current `1.1.0-dev.1` runtime still enables only the existing `LOCAL` provider and intentionally refuses `online-mode=true` until the Java-account authentication bridge is implemented and verified.
+> **Development branch note:** `dev/1.1.0-online-mode` now contains an experimental `JAVA_ACCOUNT` runtime for `online-mode=true`. It uses Geyser's Microsoft/Java authentication machinery, stores saved auth chains encrypted with a server-local AES-GCM key, and is intentionally **not yet a stable support claim** until real-account runtime testing passes.
 
 ## Requirements
 
@@ -14,9 +14,19 @@ BedrockPassport is **not** an authentication plugin. Saved Passport entries are 
 - Minecraft 26.2
 - Java 25 or newer
 - Geyser-Spigot
-- Floodgate
-- `online-mode=false`
 - SkinsRestorer is optional
+
+### LOCAL mode
+
+- `online-mode=false`
+- Floodgate
+- Geyser using Floodgate authentication
+
+### Experimental JAVA_ACCOUNT mode
+
+- `online-mode=true`
+- Geyser Java `auth-type: online`
+- Floodgate is not required for the Java-account handoff
 
 BedrockPassport performs a startup capability check for the Geyser pre-backend bridge it needs. If a required integration point is unavailable, the plugin fails closed instead of allowing an incomplete identity handoff.
 
@@ -67,7 +77,9 @@ On an offline-mode server, BedrockPassport uses the standard deterministic offli
 
 A Java client and a Bedrock client using the same username can therefore resolve to the same server identity instead of creating separate playerdata simply because the client edition changed.
 
-BedrockPassport refuses to start when `online-mode=true`. Selecting a Java username is not proof of ownership of the corresponding Microsoft/Java account, so online-mode support would require a different trust model.
+The stable LOCAL provider uses the standard offline UUID model and does not treat a selected name as proof of ownership.
+
+The experimental JAVA_ACCOUNT provider is different: BedrockPassport asks Geyser's Microsoft/Minecraft authentication stack to verify the Java account, stores the real Java UUID/name and reconnects using a refreshed authenticated Java profile. The two providers intentionally remain separate.
 
 ## Authentication compatibility and trust
 
@@ -286,6 +298,65 @@ compatibility:
 ```
 
 Set `identity.max-accounts-per-xuid` to `0` or a negative value for no Passport-side account-count limit.
+
+
+## Experimental online-mode test flow
+
+This section applies only to the `dev/1.1.0-online-mode` branch.
+
+Server setup:
+
+```text
+server.properties:
+online-mode=true
+
+Geyser:
+java.auth-type=online
+```
+
+For the cleanest first test, do not rely on Geyser's own `saved-user-logins` entry for the Bedrock gamertag being tested. BedrockPassport temporarily isolates any already-cached Geyser auth chain for the held session, but a clean Geyser online-auth setup makes failures easier to diagnose.
+
+Expected first join:
+
+```text
+Bedrock/Xbox login
+        ↓
+BedrockPassport selector
+        ↓
+＋ Add Java account
+        ↓
+Microsoft device-code form from Geyser
+        ↓
+sign in with a Microsoft account that owns Java Edition
+        ↓
+verified Java username + real Java UUID are saved
+        ↓
+backend online-mode login as that Java account
+```
+
+Expected reconnect:
+
+```text
+Bedrock/Xbox login
+        ↓
+BedrockPassport selector
+        ↓
+select saved Java account
+        ↓
+stored auth chain is decrypted and refreshed
+        ↓
+backend login as the same real Java profile
+```
+
+The encrypted auth chain is stored in `passport.db`. The AES-GCM key is stored separately at:
+
+```text
+plugins/BedrockPassport/credentials.key
+```
+
+Back up both files together. Possession of the server files and key is security-sensitive.
+
+For the first runtime test, capture the complete startup + join log and verify the backend username/UUID. If first join works, disconnect and reconnect once to verify the stored credential refresh path.
 
 ## Compatibility and maintenance
 

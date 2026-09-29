@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "dev.onelsey"
-version = "1.1.0-dev.2"
+version = "1.1.0-dev.3"
 
 repositories {
     maven("https://repo.papermc.io/repository/maven-public/")
