@@ -552,7 +552,11 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     try {
                         rotateCredentialKey();
                     } catch (IOException exception) {
-                        throw new CompletionException(exception);
+                        getLogger().severe("Deleted " + count + " saved JAVA_ACCOUNT login credential(s), but could not rotate credentials.key: "
+                                + exception.getClass().getSimpleName() + ": " + exception.getMessage());
+                        return new LoginResetResult(false, true,
+                                "Deleted " + count + " saved Java login(s), but credentials.key could not be rotated. "
+                                        + "Players will re-authenticate, but the global security reset is not complete; check the console.");
                     }
                     getLogger().warning("Reset all saved JAVA_ACCOUNT login credentials and rotated credentials.key. "
                             + "Passport identities were kept; players will re-authenticate on their next connection.");
@@ -562,10 +566,10 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                 })
                 .exceptionally(error -> {
                     Throwable cause = unwrapCompletion(error);
-                    getLogger().severe("Could not complete the global saved-login reset: "
+                    getLogger().severe("Could not delete saved JAVA_ACCOUNT login credentials: "
                             + cause.getClass().getSimpleName() + ": " + cause.getMessage());
                     return new LoginResetResult(false, false,
-                            "Could not complete the global saved-login reset. Check the console.");
+                            "Could not delete the saved Java logins. Check the console.");
                 });
 
         if (currentGate != null) {

@@ -415,9 +415,9 @@ public final class IdentityRepository implements AutoCloseable {
     private int deleteCredentialByJavaNameNow(String gameName) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "DELETE FROM identity_credentials WHERE identity_id IN (" +
-                        "SELECT id FROM identities WHERE provider_type=? AND name_key=?)")) {
+                        "SELECT id FROM identities WHERE provider_type=? AND game_name=? COLLATE NOCASE)")) {
             statement.setString(1, IdentityProviderType.JAVA_ACCOUNT.storageKey());
-            statement.setString(2, nameCollisionPolicy.key(gameName));
+            statement.setString(2, gameName);
             return statement.executeUpdate();
         }
     }
