@@ -1,0 +1,36 @@
+name: BedrockPassport Dev Build
+
+on:
+  push:
+    branches:
+      - dev/1.1.0-online-mode
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: current
+
+      - name: Build
+        run: gradle clean build --stacktrace
+
+      - name: Upload dev artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BedrockPassport-dev
+          path: build/libs/*.jar
+          if-no-files-found: error
