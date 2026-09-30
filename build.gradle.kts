@@ -32,3 +32,40 @@ tasks.processResources {
         expand("version" to project.version)
     }
 }
+
+
+val verifyFoliaCompatibility by tasks.registering {
+    val javaSources = fileTree("src/main/java") {
+        include("**/*.java")
+    }
+    val pluginDescriptor = file("src/main/resources/plugin.yml")
+
+    inputs.files(javaSources, pluginDescriptor)
+
+    doLast {
+        val forbidden = listOf(
+            "Bukkit.getScheduler()",
+            "getServer().getScheduler()",
+            "BukkitRunnable"
+        )
+
+        val violations = javaSources.files.flatMap { source ->
+            val text = source.readText()
+            forbidden.filter(text::contains).map { token ->
+                "${source.relativeTo(projectDir)} contains forbidden Folia scheduler pattern: $token"
+            }
+        }
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(violations.joinToString(System.lineSeparator()))
+        }
+
+        if (!pluginDescriptor.readText().contains("folia-supported: true")) {
+            throw GradleException("plugin.yml must declare folia-supported: true")
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(verifyFoliaCompatibility)
+}

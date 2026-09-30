@@ -36,6 +36,8 @@ BedrockPassport performs a startup capability check for the Geyser pre-backend b
 
 Folia support is implemented in the 1.2.0 development line. BedrockPassport uses Paper/Folia global and entity schedulers instead of the legacy Bukkit main-thread scheduler. Runtime verification on a real Folia server is still required before the 1.2.0 release is considered validated.
 
+Geyser, Floodgate, authentication plugins and optional integrations used alongside BedrockPassport must also support Folia; BedrockPassport cannot make an unrelated plugin region-thread safe.
+
 ## Player flow
 
 ### LOCAL mode
@@ -262,7 +264,7 @@ Alias: `/bp`.
 
 ### `/bp status`
 
-Shows runtime state, active Passport selectors, tracked sessions, pending admissions, the active identity provider, identity trust mode, skin policy and configuration schema.
+Shows runtime state, active Passport selectors, tracked sessions, pending admissions, the active identity provider, identity trust mode, detected threading model, skin policy and configuration schema.
 
 ### `/bp who <javaName>`
 

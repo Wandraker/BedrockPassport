@@ -469,6 +469,10 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         return onlineRuntime ? "verified Java account" : "untrusted handoff";
     }
 
+    public String threadingModelName() {
+        return PlatformTasks.isFolia() ? "Folia regionized" : "Paper-compatible";
+    }
+
     public String skinPolicyName() {
         if (onlineRuntime) {
             return "Geyser online profile";
