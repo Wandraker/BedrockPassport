@@ -2,6 +2,7 @@ name: BedrockPassport
 version: '${version}'
 main: dev.onelsey.bedrockpassport.BedrockPassportPlugin
 api-version: '26.2'
+folia-supported: true
 author: Onelsey
 website: https://github.com/Wandraker/BedrockPassport
 description: Persistent Java identities for Bedrock players using Geyser.

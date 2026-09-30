@@ -1,6 +1,7 @@
 package dev.onelsey.bedrockpassport.command;
 
 import dev.onelsey.bedrockpassport.BedrockPassportPlugin;
+import dev.onelsey.bedrockpassport.scheduler.PlatformTasks;
 import dev.onelsey.bedrockpassport.security.SessionGuard;
 import dev.onelsey.bedrockpassport.ui.ChatUi;
 import org.bukkit.command.Command;
@@ -33,8 +34,17 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
         }
 
         if (args[0].equalsIgnoreCase("reload")) {
-            BedrockPassportPlugin.ReloadResult result = plugin.reloadPassport();
-            sender.sendMessage(result.success() ? ChatUi.success(result.message()) : ChatUi.error(result.message()));
+            sender.sendMessage(ChatUi.info("Reloading BedrockPassport..."));
+            PlatformTasks.executeGlobal(plugin, () -> {
+                BedrockPassportPlugin.ReloadResult result = plugin.reloadPassport();
+                PlatformTasks.executeForSender(
+                        plugin,
+                        sender,
+                        () -> sender.sendMessage(result.success()
+                                ? ChatUi.success(result.message())
+                                : ChatUi.error(result.message()))
+                );
+            });
             return true;
         }
 
@@ -99,7 +109,7 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
             CommandSender sender,
             CompletableFuture<BedrockPassportPlugin.LoginResetResult> future
     ) {
-        future.whenComplete((result, error) -> plugin.getServer().getScheduler().runTask(plugin, () -> {
+        future.whenComplete((result, error) -> PlatformTasks.executeForSender(plugin, sender, () -> {
             if (error != null) {
                 sender.sendMessage(ChatUi.error("Saved-login reset failed. Check the console."));
                 return;

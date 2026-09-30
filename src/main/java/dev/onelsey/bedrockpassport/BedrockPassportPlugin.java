@@ -18,6 +18,7 @@ import dev.onelsey.bedrockpassport.integration.GeyserSessionLifecycleBridge;
 import dev.onelsey.bedrockpassport.integration.ServerLoginReadTimeoutGuard;
 import dev.onelsey.bedrockpassport.integration.UntrustedFloodgateIdentityBridge;
 import dev.onelsey.bedrockpassport.name.NamePolicy;
+import dev.onelsey.bedrockpassport.scheduler.PlatformTasks;
 import dev.onelsey.bedrockpassport.security.CredentialVault;
 import dev.onelsey.bedrockpassport.security.NameCollisionPolicy;
 import dev.onelsey.bedrockpassport.security.SessionGuard;
@@ -62,6 +63,9 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         BedrockPassportAdminCommand adminCommand = new BedrockPassportAdminCommand(this);
         command.setExecutor(adminCommand);
         command.setTabCompleter(adminCommand);
+
+        getLogger().info("BedrockPassport threading model: "
+                + (PlatformTasks.isFolia() ? "Folia regionized scheduler" : "Paper-compatible scheduler") + ".");
 
         try {
             startRuntime();

@@ -36,6 +36,7 @@ public final class FloodgateSkinPolicy implements Listener, AutoCloseable {
     private final Map<String, ManagedIdentity> managedByXuid = new ConcurrentHashMap<>();
     private final Map<UUID, ManagedIdentity> pendingJoinRestoreByUuid = new ConcurrentHashMap<>();
     private FloodgateSubscriber<SkinApplyEvent> subscriber;
+    private Plugin skinsRestorerPlugin;
     private boolean bukkitListenerRegistered;
 
     public FloodgateSkinPolicy(Plugin plugin, String configuredPolicy, boolean skinsRestorerPresent, Logger logger) {
@@ -56,8 +57,12 @@ public final class FloodgateSkinPolicy implements Listener, AutoCloseable {
                 PostOrder.LAST
         );
         if (skinsRestorerPresent) {
-            Bukkit.getPluginManager().registerEvents(this, plugin);
-            bukkitListenerRegistered = true;
+            Plugin detected = Bukkit.getPluginManager().getPlugin("SkinsRestorer");
+            if (detected != null && detected.isEnabled()) {
+                skinsRestorerPlugin = detected;
+                Bukkit.getPluginManager().registerEvents(this, plugin);
+                bukkitListenerRegistered = true;
+            }
         }
     }
 
@@ -105,7 +110,11 @@ public final class FloodgateSkinPolicy implements Listener, AutoCloseable {
             return;
         }
 
-        Bukkit.getScheduler().runTask(plugin, () -> restoreSkinsRestorerSkin(player, managed));
+        player.getScheduler().run(
+                plugin,
+                ignored -> restoreSkinsRestorerSkin(player, managed),
+                null
+        );
     }
 
     private void restoreSkinsRestorerSkin(Player player, ManagedIdentity managed) {
@@ -113,7 +122,7 @@ public final class FloodgateSkinPolicy implements Listener, AutoCloseable {
             return;
         }
 
-        Plugin skinsRestorer = Bukkit.getPluginManager().getPlugin("SkinsRestorer");
+        Plugin skinsRestorer = skinsRestorerPlugin;
         if (skinsRestorer == null || !skinsRestorer.isEnabled()) {
             return;
         }
@@ -225,6 +234,7 @@ public final class FloodgateSkinPolicy implements Listener, AutoCloseable {
             HandlerList.unregisterAll(this);
             bukkitListenerRegistered = false;
         }
+        skinsRestorerPlugin = null;
         managedByXuid.clear();
         pendingJoinRestoreByUuid.clear();
     }

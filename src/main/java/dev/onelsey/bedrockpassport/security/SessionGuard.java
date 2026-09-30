@@ -13,16 +13,21 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.Plugin;
 import org.geysermc.floodgate.api.FloodgateApi;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import org.geysermc.floodgate.api.player.FloodgatePlayer;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class SessionGuard implements Listener, AutoCloseable {
     private final Object lock = new Object();
@@ -37,6 +42,7 @@ public final class SessionGuard implements Listener, AutoCloseable {
     private final Map<String, UUID> pendingBedrockByXuid = new HashMap<>();
     private final Map<UUID, PendingJava> pendingJavaByUuid = new HashMap<>();
     private final ScheduledExecutorService cleanupExecutor;
+    private volatile boolean initialSynchronizationComplete;
 
     public SessionGuard(
             Plugin plugin,
@@ -50,9 +56,7 @@ public final class SessionGuard implements Listener, AutoCloseable {
         this.duplicateLoginMessage = Objects.requireNonNull(duplicateLoginMessage, "duplicateLoginMessage");
         this.pendingReservationNanos = TimeUnit.SECONDS.toNanos(Math.max(5L, pendingReservationSeconds));
         Bukkit.getPluginManager().registerEvents(this, plugin);
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            trackJoin(player);
-        }
+        synchronizeOnlinePlayers(plugin);
         this.cleanupExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "BedrockPassport-SessionGuard");
             thread.setDaemon(true);
@@ -65,9 +69,46 @@ public final class SessionGuard implements Listener, AutoCloseable {
         return enabled;
     }
 
+    private void synchronizeOnlinePlayers(Plugin plugin) {
+        List<Player> players = new ArrayList<>(Bukkit.getOnlinePlayers());
+        if (players.isEmpty()) {
+            initialSynchronizationComplete = true;
+            return;
+        }
+
+        initialSynchronizationComplete = false;
+        AtomicInteger remaining = new AtomicInteger(players.size());
+        for (Player player : players) {
+            AtomicBoolean completed = new AtomicBoolean();
+            Runnable finish = () -> {
+                if (completed.compareAndSet(false, true) && remaining.decrementAndGet() == 0) {
+                    initialSynchronizationComplete = true;
+                }
+            };
+
+            ScheduledTask scheduled = player.getScheduler().run(
+                    plugin,
+                    ignored -> {
+                        try {
+                            trackJoin(player);
+                        } finally {
+                            finish.run();
+                        }
+                    },
+                    finish
+            );
+            if (scheduled == null) {
+                finish.run();
+            }
+        }
+    }
+
     public boolean isBedrockXuidBusy(String xuid) {
         if (!enabled || xuid == null) {
             return false;
+        }
+        if (!initialSynchronizationComplete) {
+            return true;
         }
         synchronized (lock) {
             cleanupExpiredLocked(System.nanoTime());
@@ -82,6 +123,9 @@ public final class SessionGuard implements Listener, AutoCloseable {
         Objects.requireNonNull(identity, "identity");
         Objects.requireNonNull(identity.javaUuid(), "identity.javaUuid");
         Objects.requireNonNull(xuid, "xuid");
+        if (!initialSynchronizationComplete) {
+            return ReservationResult.IN_USE;
+        }
 
         synchronized (lock) {
             long now = System.nanoTime();
@@ -206,6 +250,13 @@ public final class SessionGuard implements Listener, AutoCloseable {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPreLoginProtect(AsyncPlayerPreLoginEvent event) {
         if (!enabled || event.getLoginResult() != AsyncPlayerPreLoginEvent.Result.ALLOWED) {
+            return;
+        }
+        if (!initialSynchronizationComplete) {
+            event.disallow(
+                    AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
+                    ChatUi.error("Passport session state is synchronizing. Please reconnect.")
+            );
             return;
         }
 
@@ -415,6 +466,7 @@ public final class SessionGuard implements Listener, AutoCloseable {
     @Override
     public void close() {
         HandlerList.unregisterAll(this);
+        initialSynchronizationComplete = false;
         cleanupExecutor.shutdownNow();
         synchronized (lock) {
             activeByUuid.clear();

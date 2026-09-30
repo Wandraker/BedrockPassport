@@ -13,7 +13,7 @@ In `LOCAL` mode BedrockPassport is **not** the authentication layer: saved names
 
 ## Requirements
 
-- Paper, Purpur or Leaf
+- Paper, Purpur, Leaf or Folia
 - Minecraft 26.2
 - Java 25 or newer
 - Geyser-Spigot
@@ -34,7 +34,7 @@ In `LOCAL` mode BedrockPassport is **not** the authentication layer: saved names
 
 BedrockPassport performs a startup capability check for the Geyser pre-backend bridge it needs. If a required integration point is unavailable, the plugin fails closed instead of allowing an incomplete identity handoff.
 
-Folia support is **not currently claimed**.
+Folia support is implemented in the 1.2.0 development line. BedrockPassport uses Paper/Folia global and entity schedulers instead of the legacy Bukkit main-thread scheduler. Runtime verification on a real Folia server is still required before the 1.2.0 release is considered validated.
 
 ## Player flow
 
@@ -393,7 +393,9 @@ Administrators can invalidate one saved Java sign-in with `/bp reset-login <java
 
 ## Compatibility and maintenance
 
-BedrockPassport targets Paper, Purpur and Leaf and does not depend on Minecraft NMS.
+BedrockPassport targets Paper, Purpur, Leaf and Folia and does not depend on Minecraft NMS.
+
+For Folia, player-bound deferred work is dispatched through the player's entity scheduler, while plugin-wide reload work is dispatched through the global-region scheduler. Session tracking uses shared synchronized state and performs existing-player resynchronization on each player's owning scheduler after a runtime reload.
 
 The pre-backend holding flow currently uses a small capability-checked bridge to Geyser pending-session internals because the public Geyser API does not expose all of the control BedrockPassport needs before Java backend login completes.
 
