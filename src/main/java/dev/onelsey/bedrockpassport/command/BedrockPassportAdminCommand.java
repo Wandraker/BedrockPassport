@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
 public final class BedrockPassportAdminCommand implements CommandExecutor, TabCompleter {
     private final BedrockPassportPlugin plugin;
@@ -34,16 +35,13 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
         }
 
         if (args[0].equalsIgnoreCase("reload")) {
+            Consumer<Runnable> replyExecutor = PlatformTasks.captureSenderExecutor(plugin, sender);
             sender.sendMessage(ChatUi.info("Reloading BedrockPassport..."));
             PlatformTasks.executeGlobal(plugin, () -> {
                 BedrockPassportPlugin.ReloadResult result = plugin.reloadPassport();
-                PlatformTasks.executeForSender(
-                        plugin,
-                        sender,
-                        () -> sender.sendMessage(result.success()
-                                ? ChatUi.success(result.message())
-                                : ChatUi.error(result.message()))
-                );
+                replyExecutor.accept(() -> sender.sendMessage(result.success()
+                        ? ChatUi.success(result.message())
+                        : ChatUi.error(result.message())));
             });
             return true;
         }
@@ -91,8 +89,9 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
                 sender.sendMessage(ChatUi.warning("To continue: /" + label + " reset-login --all confirm"));
                 return;
             }
+            Consumer<Runnable> replyExecutor = PlatformTasks.captureSenderExecutor(plugin, sender);
             sender.sendMessage(ChatUi.info("Resetting all saved Java sign-ins and rotating the credential key..."));
-            sendLoginResetResult(sender, plugin.resetAllSavedJavaLogins());
+            sendLoginResetResult(sender, replyExecutor, plugin.resetAllSavedJavaLogins());
             return;
         }
 
@@ -101,15 +100,17 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
             return;
         }
 
+        Consumer<Runnable> replyExecutor = PlatformTasks.captureSenderExecutor(plugin, sender);
         sender.sendMessage(ChatUi.info("Resetting the saved Java sign-in for " + args[1] + "..."));
-        sendLoginResetResult(sender, plugin.resetSavedJavaLogin(args[1]));
+        sendLoginResetResult(sender, replyExecutor, plugin.resetSavedJavaLogin(args[1]));
     }
 
     private void sendLoginResetResult(
             CommandSender sender,
+            Consumer<Runnable> replyExecutor,
             CompletableFuture<BedrockPassportPlugin.LoginResetResult> future
     ) {
-        future.whenComplete((result, error) -> PlatformTasks.executeForSender(plugin, sender, () -> {
+        future.whenComplete((result, error) -> replyExecutor.accept(() -> {
             if (error != null) {
                 sender.sendMessage(ChatUi.error("Saved-login reset failed. Check the console."));
                 return;
