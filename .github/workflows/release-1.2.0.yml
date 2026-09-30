@@ -1,0 +1,89 @@
+name: BedrockPassport 1.2.0 Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/release-1.2.0.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v5
+        with:
+          ref: 3c911e06fda1077b3df390c8d93b7074b6fe579f
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: current
+
+      - name: Build release
+        run: gradle clean build --stacktrace
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/release-notes.md" <<'EOF'
+          ## BedrockPassport 1.2.0
+
+          BedrockPassport 1.2.0 adds Folia support and includes the saved-login recovery work introduced after 1.1.0.
+
+          ### Folia support
+
+          - Added real Folia support instead of only declaring compatibility.
+          - Player-bound deferred work now uses the owning entity scheduler.
+          - Command-block responses use the owning region scheduler.
+          - Plugin-wide reload work uses the global-region scheduler.
+          - Existing online players are resynchronized safely after `/bp reload`.
+          - Session protection fails closed while reload resynchronization is in progress.
+          - Deferred command replies preserve the original sender execution context across async work.
+          - Added `folia-supported: true`.
+          - The build now performs an additional source compilation against the Folia 26.2 API.
+          - Added a build-time guard against reintroducing legacy Bukkit scheduler calls.
+          - `/bp status` and startup logs report the detected threading model.
+
+          The LOCAL provider was runtime-tested on Folia 26.2 with Geyser, Floodgate and SkinsRestorer, including join, disconnect, reconnect and switching saved identities.
+
+          ### Saved Java login recovery since 1.1.0
+
+          - Added `/bp reset-login <javaName>` to invalidate the saved reusable authentication state for one Java account while keeping its Passport identity and Java UUID.
+          - Added `/bp reset-login --all confirm` to invalidate all saved JAVA_ACCOUNT credentials and rotate `credentials.key`.
+          - Re-authentication must resolve to the same previously saved Java UUID before the account is accepted again.
+          - Credential resets are coordinated with the online selector so a concurrent login cannot immediately recreate credentials during a reset.
+          - Global reset reports partial failure if credentials were deleted but key rotation could not be completed.
+          - Saved-login reset handling is case-insensitive for Java account names.
+          - Missing saved credentials fall back to the normal re-authentication flow instead of deleting the saved identity.
+
+          ### Existing behavior preserved
+
+          - LOCAL identity selection for `online-mode=false`.
+          - JAVA_ACCOUNT verification for `online-mode=true`.
+          - Microsoft device-code first verification and saved Java-account reconnects.
+          - Floodgate coexistence handling for verified Java logins.
+          - AES-GCM encrypted saved Java authentication state.
+          - LOCAL untrusted Floodgate identity handoff.
+          - Optional SkinsRestorer integration.
+
+          ### Compatibility note
+
+          BedrockPassport can only make its own code Folia-safe. Geyser, Floodgate, authentication plugins, skin plugins and other integrations installed alongside it must also support Folia.
+          EOF
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.2.0             build/libs/BedrockPassport-1.2.0.jar             --repo "${{ github.repository }}"             --target 3c911e06fda1077b3df390c8d93b7074b6fe579f             --title "BedrockPassport 1.2.0"             --notes-file "$RUNNER_TEMP/release-notes.md"             --latest
