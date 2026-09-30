@@ -43,6 +43,7 @@ public final class SessionGuard implements Listener, AutoCloseable {
     private final Map<UUID, PendingJava> pendingJavaByUuid = new HashMap<>();
     private final ScheduledExecutorService cleanupExecutor;
     private volatile boolean initialSynchronizationComplete;
+    private volatile boolean closed;
 
     public SessionGuard(
             Plugin plugin,
@@ -81,7 +82,7 @@ public final class SessionGuard implements Listener, AutoCloseable {
         for (Player player : players) {
             AtomicBoolean completed = new AtomicBoolean();
             Runnable finish = () -> {
-                if (completed.compareAndSet(false, true) && remaining.decrementAndGet() == 0) {
+                if (completed.compareAndSet(false, true) && remaining.decrementAndGet() == 0 && !closed) {
                     initialSynchronizationComplete = true;
                 }
             };
@@ -90,7 +91,9 @@ public final class SessionGuard implements Listener, AutoCloseable {
                     plugin,
                     ignored -> {
                         try {
-                            trackJoin(player);
+                            if (!closed) {
+                                trackJoin(player);
+                            }
                         } finally {
                             finish.run();
                         }
@@ -338,6 +341,9 @@ public final class SessionGuard implements Listener, AutoCloseable {
     }
 
     private void trackJoin(Player player) {
+        if (closed) {
+            return;
+        }
         UUID uuid = player.getUniqueId();
         String name = player.getName();
         FloodgatePlayer floodgatePlayer = currentFloodgatePlayer(uuid, name);
@@ -368,6 +374,9 @@ public final class SessionGuard implements Listener, AutoCloseable {
     }
 
     private void untrack(Player player) {
+        if (closed) {
+            return;
+        }
         UUID uuid = player.getUniqueId();
         synchronized (lock) {
             ActiveSession active = activeByUuid.get(uuid);
@@ -436,7 +445,7 @@ public final class SessionGuard implements Listener, AutoCloseable {
     }
 
     private void cleanupExpiredReservations() {
-        if (!enabled) {
+        if (!enabled || closed) {
             return;
         }
         synchronized (lock) {
@@ -465,6 +474,7 @@ public final class SessionGuard implements Listener, AutoCloseable {
 
     @Override
     public void close() {
+        closed = true;
         HandlerList.unregisterAll(this);
         initialSynchronizationComplete = false;
         cleanupExecutor.shutdownNow();
