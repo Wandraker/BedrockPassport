@@ -34,7 +34,9 @@ In `LOCAL` mode BedrockPassport is **not** the authentication layer: saved names
 
 BedrockPassport performs a startup capability check for the Geyser pre-backend bridge it needs. If a required integration point is unavailable, the plugin fails closed instead of allowing an incomplete identity handoff.
 
-Folia support is implemented in the 1.2.0 development line. BedrockPassport uses Paper/Folia global and entity schedulers instead of the legacy Bukkit main-thread scheduler. Runtime verification on a real Folia server is still required before the 1.2.0 release is considered validated.
+Folia support is available in BedrockPassport 1.2.0. BedrockPassport uses Paper/Folia global, region and entity schedulers instead of the legacy Bukkit main-thread scheduler, and the build performs a second compilation against the Folia API in addition to the normal Paper API build.
+
+The LOCAL provider has been runtime-verified on Folia 26.2 with Geyser, Floodgate and SkinsRestorer, including join, disconnect, reconnect and switching saved identities.
 
 Geyser, Floodgate, authentication plugins and optional integrations used alongside BedrockPassport must also support Folia; BedrockPassport cannot make an unrelated plugin region-thread safe.
 
