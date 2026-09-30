@@ -399,6 +399,8 @@ BedrockPassport targets Paper, Purpur, Leaf and Folia and does not depend on Min
 
 For Folia, player-bound deferred work is dispatched through the player's entity scheduler, while plugin-wide reload work is dispatched through the global-region scheduler. Session tracking uses shared synchronized state and performs existing-player resynchronization on each player's owning scheduler after a runtime reload.
 
+The build also performs a second Java compilation against the Folia 26.2 API in addition to the normal Paper API build, and rejects legacy Bukkit scheduler calls in BedrockPassport sources.
+
 The pre-backend holding flow currently uses a small capability-checked bridge to Geyser pending-session internals because the public Geyser API does not expose all of the control BedrockPassport needs before Java backend login completes.
 
 That bridge is intentionally checked at startup so incompatible Geyser changes fail visibly rather than silently producing a partial identity handoff.

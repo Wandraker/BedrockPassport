@@ -16,10 +16,8 @@ import org.geysermc.floodgate.api.FloodgateApi;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import org.geysermc.floodgate.api.player.FloodgatePlayer;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -71,14 +69,14 @@ public final class SessionGuard implements Listener, AutoCloseable {
     }
 
     private void synchronizeOnlinePlayers(Plugin plugin) {
-        List<Player> players = new ArrayList<>(Bukkit.getOnlinePlayers());
-        if (players.isEmpty()) {
+        Player[] players = Bukkit.getOnlinePlayers().toArray(Player[]::new);
+        if (players.length == 0) {
             initialSynchronizationComplete = true;
             return;
         }
 
         initialSynchronizationComplete = false;
-        AtomicInteger remaining = new AtomicInteger(players.size());
+        AtomicInteger remaining = new AtomicInteger(players.length);
         for (Player player : players) {
             AtomicBoolean completed = new AtomicBoolean();
             Runnable finish = () -> {

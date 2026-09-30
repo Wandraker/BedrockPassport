@@ -66,6 +66,29 @@ val verifyFoliaCompatibility by tasks.registering {
     }
 }
 
+
+val foliaCompileClasspath by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
+dependencies {
+    foliaCompileClasspath("dev.folia:folia-api:26.2.build.7-beta")
+    foliaCompileClasspath("org.geysermc.geyser:api:2.11.3-SNAPSHOT")
+    foliaCompileClasspath("org.geysermc.floodgate:api:2.2.5-SNAPSHOT")
+    foliaCompileClasspath("io.netty:netty-handler:4.2.17.Final")
+}
+
+val compileFoliaCheck by tasks.registering(JavaCompile::class) {
+    source = sourceSets.main.get().java
+    classpath = foliaCompileClasspath
+    destinationDirectory.set(layout.buildDirectory.dir("classes/foliaCheck"))
+    javaCompiler.set(javaToolchains.compilerFor {
+        languageVersion.set(JavaLanguageVersion.of(25))
+    })
+    options.encoding = "UTF-8"
+}
+
 tasks.named("check") {
-    dependsOn(verifyFoliaCompatibility)
+    dependsOn(verifyFoliaCompatibility, compileFoliaCheck)
 }
