@@ -1,6 +1,8 @@
 package dev.onelsey.bedrockpassport.integration;
 
+import dev.onelsey.bedrockpassport.access.BedrockAccessPolicy;
 import dev.onelsey.bedrockpassport.gate.OnlineIdentityGate;
+import dev.onelsey.bedrockpassport.i18n.LocalizedMessages;
 import org.bukkit.plugin.Plugin;
 import org.geysermc.geyser.api.GeyserApi;
 import org.geysermc.geyser.api.event.EventRegistrar;
@@ -20,6 +22,8 @@ public final class GeyserOnlineSessionBridge implements AutoCloseable {
     private final GeyserPendingSessionBridge pendingBridge;
     private final GeyserOnlineAuthBridge authBridge;
     private final OnlineIdentityGate gate;
+    private final BedrockAccessPolicy accessPolicy;
+    private final LocalizedMessages messages;
     private final Logger logger;
     private final long holdingInitTimeoutSeconds;
     private boolean registered;
@@ -29,6 +33,8 @@ public final class GeyserOnlineSessionBridge implements AutoCloseable {
             GeyserPendingSessionBridge pendingBridge,
             GeyserOnlineAuthBridge authBridge,
             OnlineIdentityGate gate,
+            BedrockAccessPolicy accessPolicy,
+            LocalizedMessages messages,
             Logger logger,
             long holdingInitTimeoutSeconds
     ) {
@@ -37,6 +43,8 @@ public final class GeyserOnlineSessionBridge implements AutoCloseable {
         this.pendingBridge = Objects.requireNonNull(pendingBridge, "pendingBridge");
         this.authBridge = Objects.requireNonNull(authBridge, "authBridge");
         this.gate = Objects.requireNonNull(gate, "gate");
+        this.accessPolicy = Objects.requireNonNull(accessPolicy, "accessPolicy");
+        this.messages = Objects.requireNonNull(messages, "messages");
         this.logger = Objects.requireNonNull(logger, "logger");
         this.holdingInitTimeoutSeconds = Math.max(60L, holdingInitTimeoutSeconds);
     }
@@ -75,12 +83,25 @@ public final class GeyserOnlineSessionBridge implements AutoCloseable {
         }
 
         GeyserPendingSessionBridge.SessionHandle handle = new GeyserPendingSessionBridge.SessionHandle(event.connection());
+        String bedrockUsername;
+        try {
+            bedrockUsername = event.connection().name();
+        } catch (Throwable ignored) {
+            bedrockUsername = null;
+        }
+        if (!accessPolicy.allows(bedrockUsername, xuid)) {
+            String displayName = bedrockUsername == null || bedrockUsername.isBlank() ? "<unknown>" : bedrockUsername;
+            logger.info(messages.text("console.access-denied", java.util.Map.of("player", displayName)));
+            authBridge.disconnectRaw(handle, messages.prefixed("access.denied"));
+            return;
+        }
+
         GeyserOnlineAuthBridge.HeldSession held;
         try {
             held = authBridge.hold(handle, xuid);
         } catch (Throwable throwable) {
             logger.log(Level.SEVERE, "BedrockPassport could not hold the Geyser online-auth session for XUID " + xuid, throwable);
-            authBridge.disconnectRaw(handle, "§bBedrockPassport §8» §fCould not prepare Geyser online authentication for this Passport session.");
+            authBridge.disconnectRaw(handle, messages.prefixed("online.prepare-failed"));
             return;
         }
 
@@ -88,7 +109,7 @@ public final class GeyserOnlineSessionBridge implements AutoCloseable {
             if (error != null) {
                 Throwable cause = unwrap(error);
                 logger.log(Level.SEVERE, "BedrockPassport online holding environment failed for XUID " + xuid, cause);
-                authBridge.disconnect(held, "§bBedrockPassport §8» §fCould not initialize the Java-account selector.");
+                authBridge.disconnect(held, messages.prefixed("online.selector-init-failed"));
                 return;
             }
             gate.open(held);

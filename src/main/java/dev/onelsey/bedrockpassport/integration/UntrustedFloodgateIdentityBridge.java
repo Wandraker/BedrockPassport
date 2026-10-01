@@ -1,5 +1,6 @@
 package dev.onelsey.bedrockpassport.integration;
 
+import dev.onelsey.bedrockpassport.i18n.LocalizedMessages;
 import dev.onelsey.bedrockpassport.ui.ChatUi;
 import io.netty.channel.Channel;
 import io.netty.util.AttributeKey;
@@ -20,6 +21,7 @@ import org.geysermc.floodgate.util.UiProfile;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -36,12 +38,14 @@ public final class UntrustedFloodgateIdentityBridge implements Listener, AutoClo
     private final FloodgateApi api;
     private final Method addPlayerMethod;
     private final Logger logger;
+    private final LocalizedMessages messages;
     private final Map<UUID, PendingIdentity> pendingByJavaUuid = new ConcurrentHashMap<>();
     private final ScheduledExecutorService cleanupExecutor;
 
-    public UntrustedFloodgateIdentityBridge(Plugin plugin, Logger logger) {
+    public UntrustedFloodgateIdentityBridge(Plugin plugin, Logger logger, LocalizedMessages messages) {
         this.api = FloodgateApi.getInstance();
         this.logger = logger;
+        this.messages = Objects.requireNonNull(messages, "messages");
         try {
             this.addPlayerMethod = api.getClass().getMethod("addPlayer", FloodgatePlayer.class);
         } catch (NoSuchMethodException exception) {
@@ -148,7 +152,7 @@ public final class UntrustedFloodgateIdentityBridge implements Listener, AutoClo
         }
         event.disallow(
                 AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
-                ChatUi.error("Identity handoff failed safely. Please reconnect.")
+                ChatUi.error(messages.text("security.identity-handoff-failed"))
         );
     }
 

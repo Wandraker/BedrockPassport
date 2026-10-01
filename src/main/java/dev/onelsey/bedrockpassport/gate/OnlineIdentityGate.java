@@ -6,6 +6,7 @@ import dev.onelsey.bedrockpassport.data.IdentityRepository;
 import dev.onelsey.bedrockpassport.identity.IdentityProviderType;
 import dev.onelsey.bedrockpassport.integration.GeyserOnlineAuthBridge;
 import dev.onelsey.bedrockpassport.integration.GeyserPendingSessionBridge;
+import dev.onelsey.bedrockpassport.i18n.LocalizedMessages;
 import dev.onelsey.bedrockpassport.security.CredentialVault;
 
 import java.security.GeneralSecurityException;
@@ -30,6 +31,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
     private final GeyserPendingSessionBridge geyser;
     private final GeyserOnlineAuthBridge authBridge;
     private final Logger logger;
+    private final LocalizedMessages messages;
     private final int maxAccounts;
     private final long inactivityTimeoutNanos;
     private final String selectorTitle;
@@ -57,42 +59,31 @@ public final class OnlineIdentityGate implements AutoCloseable {
             GeyserPendingSessionBridge geyser,
             GeyserOnlineAuthBridge authBridge,
             Logger logger,
+            LocalizedMessages messages,
             int maxAccounts,
-            long inactivityTimeoutSeconds,
-            String selectorTitle,
-            String selectorText,
-            String lastUsedSuffix,
-            String addAccountText,
-            String manageAccountsText,
-            String manageTitle,
-            String manageText,
-            String removePrefix,
-            String backText,
-            String confirmTitle,
-            String confirmText,
-            String confirmButton,
-            String cancelButton
+            long inactivityTimeoutSeconds
     ) {
         this.repository = repository;
         this.credentialVault = credentialVault;
         this.geyser = geyser;
         this.authBridge = authBridge;
         this.logger = logger;
+        this.messages = messages;
         this.maxAccounts = maxAccounts;
         this.inactivityTimeoutNanos = TimeUnit.SECONDS.toNanos(Math.max(15L, inactivityTimeoutSeconds));
-        this.selectorTitle = selectorTitle;
-        this.selectorText = selectorText;
-        this.lastUsedSuffix = lastUsedSuffix;
-        this.addAccountText = addAccountText;
-        this.manageAccountsText = manageAccountsText;
-        this.manageTitle = manageTitle;
-        this.manageText = manageText;
-        this.removePrefix = removePrefix;
-        this.backText = backText;
-        this.confirmTitle = confirmTitle;
-        this.confirmText = confirmText;
-        this.confirmButton = confirmButton;
-        this.cancelButton = cancelButton;
+        this.selectorTitle = messages.text("selector.title");
+        this.selectorText = messages.text("online.selector-text");
+        this.lastUsedSuffix = messages.text("selector.last-used-suffix");
+        this.addAccountText = messages.text("online.add-account");
+        this.manageAccountsText = messages.text("online.manage-accounts");
+        this.manageTitle = messages.text("online.manage-title");
+        this.manageText = messages.text("online.manage-text");
+        this.removePrefix = messages.text("manage.remove-prefix");
+        this.backText = messages.text("manage.back");
+        this.confirmTitle = messages.text("manage.confirm-title");
+        this.confirmText = messages.text("online.confirm-text");
+        this.confirmButton = messages.text("manage.confirm-button");
+        this.cancelButton = messages.text("manage.cancel-button");
 
         this.watchdog = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "BedrockPassport-OnlineGate");
@@ -113,11 +104,11 @@ public final class OnlineIdentityGate implements AutoCloseable {
             }
         }
         if (maintenance) {
-            authBridge.disconnect(held, "§bBedrockPassport §8» §fSaved Java sign-ins are being reset. Please reconnect in a moment.");
+            authBridge.disconnect(held, messages.prefixed("online.maintenance"));
             return;
         }
         if (previous != null) {
-            authBridge.disconnect(held, "§bBedrockPassport §8» §fThis Bedrock/Xbox account already has an active Passport session.");
+            authBridge.disconnect(held, messages.prefixed("online.active-session"));
             return;
         }
         showHome(flow, null);
@@ -198,7 +189,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
                             connectExisting(flow, accounts.get(index));
                         } else if (index == addIndex) {
                             if (maxAccounts > 0 && accounts.size() >= maxAccounts) {
-                                showHome(flow, "This Passport has reached its Java-account limit.");
+                                showHome(flow, messages.text("online.limit-reached"));
                             } else {
                                 addJavaAccount(flow);
                             }
@@ -227,7 +218,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
             }
             if (stored.isEmpty()) {
                 flow.externalAuth = false;
-                offerReauthentication(flow, identity, "This Java account needs to be verified again.");
+                offerReauthentication(flow, identity, messages.text("online.reauth-required"));
                 return;
             }
 
@@ -236,7 +227,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
                 authChain = decrypt(identity, flow.held.xuid(), stored.get());
             } catch (Throwable throwable) {
                 flow.externalAuth = false;
-                offerReauthentication(flow, identity, "Saved Microsoft credential could not be decrypted.");
+                offerReauthentication(flow, identity, messages.text("online.credential-decrypt-failed"));
                 return;
             }
 
@@ -246,7 +237,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
                 }
                 if (authError != null) {
                     flow.externalAuth = false;
-                    offerReauthentication(flow, identity, "Microsoft login needs to be refreshed.");
+                    offerReauthentication(flow, identity, messages.text("online.credential-refresh-required"));
                     return;
                 }
                 if (!identity.javaUuid().equals(account.javaUuid())) {
@@ -271,7 +262,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
             if (error != null) {
                 flow.externalAuth = false;
                 authBridge.resumeSelection(flow.held);
-                showHome(flow, "Microsoft/Java sign-in failed. You can try again.");
+                showHome(flow, messages.text("online.sign-in-failed-retry"));
                 return;
             }
 
@@ -295,9 +286,9 @@ public final class OnlineIdentityGate implements AutoCloseable {
                     flow.externalAuth = false;
                     authBridge.resumeSelection(flow.held);
                     if (claim.status() == ClaimResult.Status.LIMIT_REACHED) {
-                        showHome(flow, "This Passport has reached its Java-account limit.");
+                        showHome(flow, messages.text("online.limit-reached"));
                     } else {
-                        showHome(flow, "That Java account could not be saved.");
+                        showHome(flow, messages.text("online.account-save-failed"));
                     }
                     return;
                 }
@@ -319,9 +310,9 @@ public final class OnlineIdentityGate implements AutoCloseable {
         long screen = flow.beginScreen();
         geyser.showConfirmation(
                 flow.held.handle(),
-                "§l§eJava account sign-in",
-                "§f" + reason + "\n§7Sign in again to verify §b" + identity.gameName() + "§7.",
-                "§aSign in",
+                messages.text("online.reauth-title"),
+                messages.text("online.reauth-text", Map.of("reason", reason, "account", identity.gameName())),
+                messages.text("online.sign-in-button"),
                 backText,
                 confirmed -> {
                     if (!flow.claimScreen(screen)) {
@@ -347,13 +338,13 @@ public final class OnlineIdentityGate implements AutoCloseable {
             if (error != null) {
                 flow.externalAuth = false;
                 authBridge.resumeSelection(flow.held);
-                showHome(flow, "Microsoft/Java sign-in failed.");
+                showHome(flow, messages.text("online.sign-in-failed"));
                 return;
             }
             if (!identity.javaUuid().equals(account.javaUuid())) {
                 flow.externalAuth = false;
                 authBridge.resumeSelection(flow.held);
-                showHome(flow, "The Microsoft account you signed into is not " + identity.gameName() + ".");
+                showHome(flow, messages.text("online.wrong-account", Map.of("account", identity.gameName())));
                 return;
             }
             persistAndConnect(flow, identity, account);
@@ -465,7 +456,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
                         if (error != null) {
                             fail(flow, error);
                         } else {
-                            showHome(flow, removed ? "Java account removed from this Passport." : "Account was already removed.");
+                            showHome(flow, removed ? messages.text("online.removed") : messages.text("online.already-removed"));
                         }
                     });
                 },
@@ -499,7 +490,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
         logger.log(Level.SEVERE, "BedrockPassport online identity flow failed for XUID " + flow.held.xuid(), cause);
         if (active.remove(flow.held.xuid(), flow)) {
             flow.finished = true;
-            authBridge.disconnect(flow.held, "§bBedrockPassport §8» §fJava account authentication failed. Please reconnect.");
+            authBridge.disconnect(flow.held, messages.prefixed("online.auth-failed"));
         }
     }
 
@@ -511,7 +502,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
             }
             if (now - flow.lastTouchedNanos > inactivityTimeoutNanos && active.remove(flow.held.xuid(), flow)) {
                 flow.finished = true;
-                authBridge.disconnect(flow.held, "§bBedrockPassport §8» §fYou did not choose an account in time. Reconnect and try again.");
+                authBridge.disconnect(flow.held, messages.prefixed("online.timeout"));
             }
         }
     }
@@ -530,7 +521,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
         watchdog.shutdownNow();
         for (Flow flow : active.values()) {
             flow.finished = true;
-            authBridge.disconnect(flow.held, "§bBedrockPassport §8» §fPassport runtime is reloading.");
+            authBridge.disconnect(flow.held, messages.prefixed("online.reloading"));
         }
         active.clear();
     }

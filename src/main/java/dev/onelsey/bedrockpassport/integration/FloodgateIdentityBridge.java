@@ -1,6 +1,8 @@
 package dev.onelsey.bedrockpassport.integration;
 
+import dev.onelsey.bedrockpassport.access.BedrockAccessPolicy;
 import dev.onelsey.bedrockpassport.data.Identity;
+import dev.onelsey.bedrockpassport.i18n.LocalizedMessages;
 import dev.onelsey.bedrockpassport.gate.GateClosedException;
 import dev.onelsey.bedrockpassport.gate.GateMessages;
 import dev.onelsey.bedrockpassport.gate.GateTimeoutException;
@@ -12,6 +14,7 @@ import org.geysermc.floodgate.api.handshake.HandshakeHandler;
 import org.geysermc.floodgate.api.handshake.HandshakeHandlers;
 import org.geysermc.floodgate.util.LinkedPlayer;
 
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.logging.Level;
@@ -21,6 +24,8 @@ import java.util.logging.Logger;
 public final class FloodgateIdentityBridge implements HandshakeHandler, AutoCloseable {
     private final IdentityGate gate;
     private final GateMessages messages;
+    private final BedrockAccessPolicy accessPolicy;
+    private final LocalizedMessages localizedMessages;
     private final Logger logger;
     private final HandshakeHandlers handlers;
     private final ServerLoginReadTimeoutGuard serverTimeoutGuard;
@@ -31,6 +36,8 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
     public FloodgateIdentityBridge(
             IdentityGate gate,
             GateMessages messages,
+            BedrockAccessPolicy accessPolicy,
+            LocalizedMessages localizedMessages,
             Logger logger,
             ServerLoginReadTimeoutGuard serverTimeoutGuard,
             FloodgateSkinPolicy skinPolicy,
@@ -38,6 +45,8 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
     ) {
         this.gate = gate;
         this.messages = messages;
+        this.accessPolicy = accessPolicy;
+        this.localizedMessages = localizedMessages;
         this.logger = logger;
         this.serverTimeoutGuard = serverTimeoutGuard;
         this.skinPolicy = skinPolicy;
@@ -62,9 +71,17 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
         }
 
         String xuid = data.getBedrockData().getXuid();
+        String bedrockUsername = data.getBedrockData().getUsername();
         UUID floodgateUuid = data.getJavaUniqueId();
         if (xuid == null || xuid.isBlank() || floodgateUuid == null) {
             data.setDisconnectReason(disconnectReason(messages.internalError()));
+            return;
+        }
+
+        if (!accessPolicy.allows(bedrockUsername, xuid)) {
+            String displayName = bedrockUsername == null || bedrockUsername.isBlank() ? "<unknown>" : bedrockUsername;
+            logger.info(localizedMessages.text("console.access-denied", Map.of("player", displayName)));
+            data.setDisconnectReason(disconnectReason(localizedMessages.text("access.denied")));
             return;
         }
 
@@ -83,14 +100,14 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
             data.setDisconnectReason(disconnectReason(busy.getMessage()));
         } catch (GateClosedException closed) {
             releaseIfSelected(xuid, identity);
-            data.setDisconnectReason(disconnectReason("Bedrock connection closed."));
+            data.setDisconnectReason(disconnectReason(localizedMessages.text("security.bedrock-connection-closed")));
         } catch (CompletionException exception) {
             releaseIfSelected(xuid, identity);
             Throwable cause = unwrap(exception);
             if (cause instanceof GateTimeoutException) {
                 data.setDisconnectReason(disconnectReason(messages.timeout()));
             } else if (cause instanceof GateClosedException) {
-                data.setDisconnectReason(disconnectReason("Bedrock connection closed."));
+                data.setDisconnectReason(disconnectReason(localizedMessages.text("security.bedrock-connection-closed")));
             } else if (cause instanceof PassportSessionBusyException busy) {
                 data.setDisconnectReason(disconnectReason(busy.getMessage()));
             } else {

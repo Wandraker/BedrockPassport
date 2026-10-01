@@ -32,6 +32,7 @@ public final class SessionGuard implements Listener, AutoCloseable {
     private final boolean enabled;
     private final NameCollisionPolicy nameCollisionPolicy;
     private final String duplicateLoginMessage;
+    private final String synchronizingMessage;
     private final long pendingReservationNanos;
     private final Map<UUID, ActiveSession> activeByUuid = new HashMap<>();
     private final Map<String, ActiveSession> activeBedrockByExactName = new HashMap<>();
@@ -48,11 +49,13 @@ public final class SessionGuard implements Listener, AutoCloseable {
             boolean enabled,
             NameCollisionPolicy nameCollisionPolicy,
             String duplicateLoginMessage,
+            String synchronizingMessage,
             long pendingReservationSeconds
     ) {
         this.enabled = enabled;
         this.nameCollisionPolicy = Objects.requireNonNull(nameCollisionPolicy, "nameCollisionPolicy");
         this.duplicateLoginMessage = Objects.requireNonNull(duplicateLoginMessage, "duplicateLoginMessage");
+        this.synchronizingMessage = Objects.requireNonNull(synchronizingMessage, "synchronizingMessage");
         this.pendingReservationNanos = TimeUnit.SECONDS.toNanos(Math.max(5L, pendingReservationSeconds));
         Bukkit.getPluginManager().registerEvents(this, plugin);
         synchronizeOnlinePlayers(plugin);
@@ -256,7 +259,7 @@ public final class SessionGuard implements Listener, AutoCloseable {
         if (!initialSynchronizationComplete) {
             event.disallow(
                     AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
-                    ChatUi.error("Passport session state is synchronizing. Please reconnect.")
+                    ChatUi.error(synchronizingMessage)
             );
             return;
         }
