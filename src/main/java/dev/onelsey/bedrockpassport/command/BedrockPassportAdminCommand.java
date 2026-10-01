@@ -58,12 +58,15 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
                 return true;
             }
             sender.sendMessage(ChatUi.info(plugin.message("admin.session-header", Map.of("name", snapshot.javaName()))));
-            sender.sendMessage(ChatUi.accentValue("state", snapshot.state()));
-            sender.sendMessage(ChatUi.value("Java UUID", snapshot.javaUuid()));
-            sender.sendMessage(ChatUi.value("source", snapshot.bedrock() ? "Bedrock" : "Java"));
+            sender.sendMessage(ChatUi.accentValue(plugin.message("admin.who.state"), snapshot.state()));
+            sender.sendMessage(ChatUi.value(plugin.message("admin.who.java-uuid"), snapshot.javaUuid()));
+            sender.sendMessage(ChatUi.value(plugin.message("admin.who.source"),
+                    snapshot.bedrock() ? plugin.message("admin.who.bedrock") : plugin.message("admin.who.java")));
             if (snapshot.bedrock()) {
-                sender.sendMessage(ChatUi.accentValue("Xbox name", snapshot.bedrockUsername() == null ? "unknown" : snapshot.bedrockUsername()));
-                sender.sendMessage(ChatUi.value("XUID", snapshot.xuid() == null ? "unknown" : snapshot.xuid()));
+                sender.sendMessage(ChatUi.accentValue(plugin.message("admin.who.xbox-name"),
+                        snapshot.bedrockUsername() == null ? plugin.message("admin.who.unknown") : snapshot.bedrockUsername()));
+                sender.sendMessage(ChatUi.value(plugin.message("admin.who.xuid"),
+                        snapshot.xuid() == null ? plugin.message("admin.who.unknown") : snapshot.xuid()));
             }
             return true;
         }
