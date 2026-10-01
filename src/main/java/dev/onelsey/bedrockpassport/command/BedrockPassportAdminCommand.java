@@ -12,6 +12,7 @@ import org.bukkit.command.TabCompleter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
@@ -25,7 +26,7 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!sender.hasPermission("bedrockpassport.admin")) {
-            sender.sendMessage(ChatUi.error("You do not have permission to use this command."));
+            sender.sendMessage(ChatUi.error(plugin.message("admin.no-permission")));
             return true;
         }
 
@@ -36,7 +37,7 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
 
         if (args[0].equalsIgnoreCase("reload")) {
             Consumer<Runnable> replyExecutor = PlatformTasks.captureSenderExecutor(plugin, sender);
-            sender.sendMessage(ChatUi.info("Reloading BedrockPassport..."));
+            sender.sendMessage(ChatUi.info(plugin.message("admin.reload-start")));
             PlatformTasks.executeGlobal(plugin, () -> {
                 BedrockPassportPlugin.ReloadResult result = plugin.reloadPassport();
                 replyExecutor.accept(() -> sender.sendMessage(result.success()
@@ -48,15 +49,15 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
 
         if (args[0].equalsIgnoreCase("who")) {
             if (args.length < 2) {
-                sender.sendMessage(ChatUi.warning("Usage: /" + label + " who <javaName>"));
+                sender.sendMessage(ChatUi.warning(plugin.message("admin.who-usage", Map.of("label", label))));
                 return true;
             }
             SessionGuard.SessionSnapshot snapshot = plugin.sessionSnapshot(args[1]);
             if (snapshot == null) {
-                sender.sendMessage(ChatUi.warning("No active or pending session for " + args[1] + "."));
+                sender.sendMessage(ChatUi.warning(plugin.message("admin.no-session", Map.of("name", args[1]))));
                 return true;
             }
-            sender.sendMessage(ChatUi.info("Session for " + snapshot.javaName()));
+            sender.sendMessage(ChatUi.info(plugin.message("admin.session-header", Map.of("name", snapshot.javaName()))));
             sender.sendMessage(ChatUi.accentValue("state", snapshot.state()));
             sender.sendMessage(ChatUi.value("Java UUID", snapshot.javaUuid()));
             sender.sendMessage(ChatUi.value("source", snapshot.bedrock() ? "Bedrock" : "Java"));
@@ -72,36 +73,36 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
             return true;
         }
 
-        sender.sendMessage(ChatUi.warning("Usage: /" + label + " status | reload | who <javaName> | reset-login <javaName> | reset-login --all confirm"));
+        sender.sendMessage(ChatUi.warning(plugin.message("admin.usage", Map.of("label", label))));
         return true;
     }
 
     private void handleLoginReset(CommandSender sender, String label, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage(ChatUi.warning("Usage: /" + label + " reset-login <javaName>"));
-            sender.sendMessage(ChatUi.warning("Global reset: /" + label + " reset-login --all confirm"));
+            sender.sendMessage(ChatUi.warning(plugin.message("admin.reset-usage", Map.of("label", label))));
+            sender.sendMessage(ChatUi.warning(plugin.message("admin.reset-global-usage", Map.of("label", label))));
             return;
         }
 
         if (args[1].equalsIgnoreCase("--all")) {
             if (args.length != 3 || !args[2].equalsIgnoreCase("confirm")) {
-                sender.sendMessage(ChatUi.warning("This keeps Passport identities but forces all saved Java accounts to verify again."));
-                sender.sendMessage(ChatUi.warning("To continue: /" + label + " reset-login --all confirm"));
+                sender.sendMessage(ChatUi.warning(plugin.message("admin.reset-global-warning")));
+                sender.sendMessage(ChatUi.warning(plugin.message("admin.reset-global-confirm", Map.of("label", label))));
                 return;
             }
             Consumer<Runnable> replyExecutor = PlatformTasks.captureSenderExecutor(plugin, sender);
-            sender.sendMessage(ChatUi.info("Resetting all saved Java sign-ins and rotating the credential key..."));
+            sender.sendMessage(ChatUi.info(plugin.message("admin.reset-global-start")));
             sendLoginResetResult(sender, replyExecutor, plugin.resetAllSavedJavaLogins());
             return;
         }
 
         if (args.length != 2) {
-            sender.sendMessage(ChatUi.warning("Usage: /" + label + " reset-login <javaName>"));
+            sender.sendMessage(ChatUi.warning(plugin.message("admin.reset-usage", Map.of("label", label))));
             return;
         }
 
         Consumer<Runnable> replyExecutor = PlatformTasks.captureSenderExecutor(plugin, sender);
-        sender.sendMessage(ChatUi.info("Resetting the saved Java sign-in for " + args[1] + "..."));
+        sender.sendMessage(ChatUi.info(plugin.message("admin.reset-one-start", Map.of("name", args[1]))));
         sendLoginResetResult(sender, replyExecutor, plugin.resetSavedJavaLogin(args[1]));
     }
 
@@ -112,7 +113,7 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
     ) {
         future.whenComplete((result, error) -> replyExecutor.accept(() -> {
             if (error != null) {
-                sender.sendMessage(ChatUi.error("Saved-login reset failed. Check the console."));
+                sender.sendMessage(ChatUi.error(plugin.message("admin.reset-failed")));
                 return;
             }
             if (!result.success()) {
@@ -127,20 +128,25 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
 
     private void sendStatus(CommandSender sender) {
         sender.sendMessage(ChatUi.info("BedrockPassport " + plugin.getDescription().getVersion()));
-        if (plugin.runtimeReady()) {
-            sender.sendMessage(ChatUi.goodValue("runtime", "ready"));
-        } else {
-            sender.sendMessage(ChatUi.value("runtime", "not ready"));
-        }
-        sender.sendMessage(ChatUi.accentValue("Passport selectors", plugin.activeSelectionCount()));
-        sender.sendMessage(ChatUi.accentValue("tracked sessions", plugin.trackedSessionCount()));
-        sender.sendMessage(ChatUi.accentValue("pending admissions", plugin.pendingAdmissionCount()));
-        sender.sendMessage(ChatUi.accentValue("identity provider", plugin.identityProviderName()));
-        sender.sendMessage(ChatUi.accentValue("identity trust", plugin.identityTrustName()));
-        sender.sendMessage(ChatUi.accentValue("threading model", plugin.threadingModelName()));
-        sender.sendMessage(ChatUi.accentValue("skin policy", plugin.skinPolicyName()));
-        sender.sendMessage(ChatUi.value("SkinsRestorer", plugin.skinsRestorerPresent() ? "detected" : "not detected"));
-        sender.sendMessage(ChatUi.value("config schema", plugin.getConfig().getInt("config-version", 0)));
+        sender.sendMessage(plugin.runtimeReady()
+                ? ChatUi.goodValue(plugin.message("admin.status.runtime"), plugin.message("admin.status.ready"))
+                : ChatUi.value(plugin.message("admin.status.runtime"), plugin.message("admin.status.not-ready")));
+        sender.sendMessage(ChatUi.accentValue(plugin.message("admin.status.selectors"), plugin.activeSelectionCount()));
+        sender.sendMessage(ChatUi.accentValue(plugin.message("admin.status.tracked"), plugin.trackedSessionCount()));
+        sender.sendMessage(ChatUi.accentValue(plugin.message("admin.status.pending"), plugin.pendingAdmissionCount()));
+        sender.sendMessage(ChatUi.accentValue(plugin.message("admin.status.provider"), plugin.identityProviderName()));
+        sender.sendMessage(ChatUi.accentValue(plugin.message("admin.status.trust"), plugin.identityTrustName()));
+        sender.sendMessage(ChatUi.accentValue(plugin.message("admin.status.threading"), plugin.threadingModelName()));
+        sender.sendMessage(ChatUi.accentValue(plugin.message("admin.status.skin"), plugin.skinPolicyName()));
+        sender.sendMessage(ChatUi.value(plugin.message("admin.status.skinsrestorer"),
+                plugin.skinsRestorerPresent() ? plugin.message("admin.status.detected") : plugin.message("admin.status.not-detected")));
+        sender.sendMessage(ChatUi.value(plugin.message("admin.status.access"),
+                plugin.allowlistEnabled() ? plugin.message("admin.status.enabled") : plugin.message("admin.status.disabled")));
+        sender.sendMessage(ChatUi.value(plugin.message("admin.status.access-players"), plugin.allowlistPlayerCount()));
+        sender.sendMessage(ChatUi.value(plugin.message("admin.status.access-xuids"), plugin.allowlistXuidCount()));
+        sender.sendMessage(ChatUi.value(plugin.message("admin.status.config-locale"), plugin.configLocaleName()));
+        sender.sendMessage(ChatUi.value(plugin.message("admin.status.messages-locale"), plugin.messagesLocaleName()));
+        sender.sendMessage(ChatUi.value(plugin.message("admin.status.schema"), plugin.getConfig().getInt("config-version", 0)));
     }
 
     @Override

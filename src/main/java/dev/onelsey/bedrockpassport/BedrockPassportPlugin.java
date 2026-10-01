@@ -1,7 +1,9 @@
 package dev.onelsey.bedrockpassport;
 
+import dev.onelsey.bedrockpassport.access.BedrockAccessPolicy;
 import dev.onelsey.bedrockpassport.command.BedrockPassportAdminCommand;
 import dev.onelsey.bedrockpassport.config.ConfigMigrator;
+import dev.onelsey.bedrockpassport.i18n.LocalizedMessages;
 import dev.onelsey.bedrockpassport.data.IdentityRepository;
 import dev.onelsey.bedrockpassport.gate.GateMessages;
 import dev.onelsey.bedrockpassport.gate.IdentityGate;
@@ -27,6 +29,7 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
@@ -43,6 +46,8 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     private GeyserOnlineAuthBridge onlineAuthBridge;
     private GeyserOnlineSessionBridge onlineSessionBridge;
     private CredentialVault credentialVault;
+    private LocalizedMessages localizedMessages;
+    private BedrockAccessPolicy accessPolicy;
     private boolean onlineRuntime;
     private IdentityProviderType identityProviderType;
 
@@ -50,8 +55,13 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     public void onEnable() {
         saveDefaultConfig();
         ConfigMigrator.MigrationResult migration = ConfigMigrator.migrate(this);
+        localizedMessages = new LocalizedMessages(this);
+        localizedMessages.reload();
         if (migration.changed()) {
-            getLogger().info("Migrated BedrockPassport config schema " + migration.previousVersion() + " -> " + migration.currentVersion() + ".");
+            getLogger().info(localizedMessages.text("console.config-migrated", Map.of(
+                    "from", migration.previousVersion(),
+                    "to", migration.currentVersion()
+            )));
         }
         getDataFolder().mkdirs();
 
@@ -64,8 +74,9 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         command.setExecutor(adminCommand);
         command.setTabCompleter(adminCommand);
 
-        getLogger().info("BedrockPassport threading model: "
-                + (PlatformTasks.isFolia() ? "Folia regionized scheduler" : "Paper-compatible scheduler") + ".");
+        getLogger().info(localizedMessages.text("console.threading", Map.of(
+                "model", PlatformTasks.isFolia() ? "Folia regionized scheduler" : "Paper-compatible scheduler"
+        )));
 
         try {
             startRuntime();
@@ -90,6 +101,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         }
 
         IdentityRepository nextRepository = null;
+        BedrockAccessPolicy nextAccessPolicy = null;
         SessionGuard nextSessionGuard = null;
         IdentityGate nextGate = null;
         FloodgateIdentityBridge nextFloodgateBridge = null;
@@ -98,12 +110,10 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         GeyserSessionLifecycleBridge nextGeyserLifecycleBridge = null;
 
         try {
+            nextAccessPolicy = BedrockAccessPolicy.fromConfig(getConfig());
             boolean caseInsensitiveNames = getConfig().getBoolean("security.case-insensitive-bedrock-names", true);
             boolean firstSessionWins = getConfig().getBoolean("security.first-session-wins", true);
-            String duplicateLoginMessage = getConfig().getString(
-                    "security.duplicate-login-message",
-                    "This server account is already online."
-            );
+            String duplicateLoginMessage = localizedMessages.text("security.duplicate-login");
             long inactivityTimeoutSeconds = getConfig().getLong("identity.inactivity-timeout-seconds", 60L);
             long pendingReservationSeconds = getConfig().getLong("security.pending-reservation-seconds", 45L);
             boolean suspendGeyserDownstreamReadTimeout = getConfig().getBoolean(
@@ -124,12 +134,13 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     getConfig().getString("identity.name-pattern", "^[A-Za-z0-9_]+$")
             );
             LocalIdentityProvider identityProvider = new LocalIdentityProvider();
-            nextUntrustedIdentityBridge = new UntrustedFloodgateIdentityBridge(this, getLogger());
+            nextUntrustedIdentityBridge = new UntrustedFloodgateIdentityBridge(this, getLogger(), localizedMessages);
             nextSessionGuard = new SessionGuard(
                     this,
                     firstSessionWins,
                     nameCollisionPolicy,
                     duplicateLoginMessage,
+                    localizedMessages.text("security.synchronizing"),
                     pendingReservationSeconds
             );
             boolean skinsRestorerPresent = getServer().getPluginManager().isPluginEnabled("SkinsRestorer");
@@ -141,30 +152,30 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             );
             nextSkinPolicy.register();
             GateMessages messages = new GateMessages(
-                    getConfig().getString("form.title", "§l§bBedrockPassport"),
-                    getConfig().getString("form.text", "§fChoose the Java account you want to use.\n§7Authentication still happens on the server after this step."),
-                    getConfig().getString("form.input-label", "§bJava username"),
-                    getConfig().getString("form.input-placeholder", "Example: Onelsey"),
-                    getConfig().getString("form.invalid-name", "Use 3-16 characters: A-Z, a-z, 0-9 and _."),
-                    getConfig().getString("form.name-taken", "That account is already saved in this Passport."),
-                    getConfig().getString("form.limit-reached", "Your Bedrock Passport has reached its account limit."),
-                    getConfig().getString("form.account-in-use", "That server account is already online."),
-                    getConfig().getString("form.passport-in-use", "This Bedrock/Xbox account already has a pending Passport session."),
-                    getConfig().getString("form.internal-error", "BedrockPassport could not save your account. Please reconnect."),
-                    getConfig().getString("form.timeout", "You did not choose an account in time. Reconnect and try again."),
-                    getConfig().getString("selector.title", "§l§bBedrockPassport"),
-                    getConfig().getString("selector.text", "§fChoose your server account.\n§7The last used account is marked with §a✓§7."),
-                    getConfig().getString("selector.last-used-suffix", " §a✓"),
-                    getConfig().getString("selector.add-account", "§a＋ Add account"),
-                    getConfig().getString("selector.manage-accounts", "§e⚙ Manage accounts"),
-                    getConfig().getString("manage.title", "§l§bPassport accounts"),
-                    getConfig().getString("manage.text", "§fManage saved account shortcuts.\n§7Removing one does not delete server data or passwords."),
-                    getConfig().getString("manage.remove-prefix", "§c✕ "),
-                    getConfig().getString("manage.back", "§b← Back"),
-                    getConfig().getString("manage.confirm-title", "§l§cRemove account"),
-                    getConfig().getString("manage.confirm-text", "§fRemove %account% from this Bedrock Passport?\n§7Server data and passwords are not deleted."),
-                    getConfig().getString("manage.confirm-button", "§cRemove"),
-                    getConfig().getString("manage.cancel-button", "§bCancel")
+                    localizedMessages.text("form.title"),
+                    localizedMessages.text("form.text"),
+                    localizedMessages.text("form.input-label"),
+                    localizedMessages.text("form.input-placeholder"),
+                    localizedMessages.text("form.invalid-name"),
+                    localizedMessages.text("form.name-taken"),
+                    localizedMessages.text("form.limit-reached"),
+                    localizedMessages.text("form.account-in-use"),
+                    localizedMessages.text("form.passport-in-use"),
+                    localizedMessages.text("form.internal-error"),
+                    localizedMessages.text("form.timeout"),
+                    localizedMessages.text("selector.title"),
+                    localizedMessages.text("selector.text"),
+                    localizedMessages.text("selector.last-used-suffix"),
+                    localizedMessages.text("selector.add-account"),
+                    localizedMessages.text("selector.manage-accounts"),
+                    localizedMessages.text("manage.title"),
+                    localizedMessages.text("manage.text"),
+                    localizedMessages.text("manage.remove-prefix"),
+                    localizedMessages.text("manage.back"),
+                    localizedMessages.text("manage.confirm-title"),
+                    localizedMessages.text("manage.confirm-text"),
+                    localizedMessages.text("manage.confirm-button"),
+                    localizedMessages.text("manage.cancel-button")
             );
             nextGate = new IdentityGate(
                     nextRepository,
@@ -181,6 +192,8 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             nextFloodgateBridge = new FloodgateIdentityBridge(
                     nextGate,
                     messages,
+                    nextAccessPolicy,
+                    localizedMessages,
                     getLogger(),
                     new ServerLoginReadTimeoutGuard(suspendServerLoginReadTimeout),
                     nextSkinPolicy,
@@ -197,6 +210,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             nextGeyserLifecycleBridge.register();
 
             repository = nextRepository;
+            accessPolicy = nextAccessPolicy;
             sessionGuard = nextSessionGuard;
             gate = nextGate;
             floodgateBridge = nextFloodgateBridge;
@@ -206,15 +220,16 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             onlineRuntime = false;
             identityProviderType = identityProvider.type();
 
-            getLogger().info("BedrockPassport enabled. Geyser pending-session bridge capability check passed.");
-            getLogger().info("BedrockPassport identity provider: " + identityProvider.type().storageKey() + ".");
-            getLogger().info("BedrockPassport account UUID mode: " + identityProvider.uuidMode() + ".");
-            getLogger().info("BedrockPassport name collision mode: " + nameCollisionPolicy.mode() + ".");
-            getLogger().info("BedrockPassport first-session-wins: " + firstSessionWins + ".");
-            getLogger().info("BedrockPassport Floodgate identity trust: untrusted Passport handoff.");
-            getLogger().info("BedrockPassport skin policy: " + nextSkinPolicy.policyName() + "; SkinsRestorer detected: " + nextSkinPolicy.skinsRestorerPresent() + ".");
-            getLogger().info("BedrockPassport saved identities are convenience shortcuts, not ownership claims.");
-            getLogger().info("BedrockPassport handles identity only. Password/login/register remains the responsibility of the server authentication plugin.");
+            getLogger().info(localizedMessages.text("console.local-enabled"));
+            getLogger().info(localizedMessages.text("console.identity-provider", Map.of("provider", identityProvider.type().storageKey())));
+            getLogger().info(localizedMessages.text("console.uuid-mode", Map.of("mode", identityProvider.uuidMode())));
+            getLogger().info(localizedMessages.text("console.collision-mode", Map.of("mode", nameCollisionPolicy.mode())));
+            getLogger().info(localizedMessages.text("console.first-session-wins", Map.of("value", firstSessionWins)));
+            getLogger().info(localizedMessages.text("console.floodgate-trust"));
+            getLogger().info(localizedMessages.text("console.skin-policy", Map.of("policy", nextSkinPolicy.policyName(), "detected", nextSkinPolicy.skinsRestorerPresent())));
+            getLogger().info(localizedMessages.text("console.saved-shortcuts"));
+            getLogger().info(localizedMessages.text("console.local-auth-layer"));
+            logAccessPolicy(nextAccessPolicy);
         } catch (Throwable exception) {
             if (nextGeyserLifecycleBridge != null) {
                 nextGeyserLifecycleBridge.close();
@@ -249,12 +264,14 @@ public final class BedrockPassportPlugin extends JavaPlugin {
 
         IdentityRepository nextRepository = null;
         CredentialVault nextCredentialVault = null;
+        BedrockAccessPolicy nextAccessPolicy = null;
         FloodgateOnlineIsolation nextFloodgateOnlineIsolation = null;
         GeyserOnlineAuthBridge nextOnlineAuthBridge = null;
         OnlineIdentityGate nextOnlineGate = null;
         GeyserOnlineSessionBridge nextOnlineSessionBridge = null;
 
         try {
+            nextAccessPolicy = BedrockAccessPolicy.fromConfig(getConfig());
             boolean caseInsensitiveNames = getConfig().getBoolean("security.case-insensitive-bedrock-names", true);
             long inactivityTimeoutSeconds = getConfig().getLong("identity.inactivity-timeout-seconds", 60L);
             long holdingWorldInitTimeoutSeconds = getConfig().getLong("compatibility.holding-world-init-timeout-seconds", 10L);
@@ -274,27 +291,17 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     pendingBridge,
                     nextOnlineAuthBridge,
                     getLogger(),
+                    localizedMessages,
                     getConfig().getInt("identity.max-accounts-per-xuid", 3),
-                    inactivityTimeoutSeconds,
-                    getConfig().getString("selector.title", "§l§bBedrockPassport"),
-                    "§fChoose a verified Java account.\n§7Microsoft/Minecraft authentication is required for new accounts.",
-                    getConfig().getString("selector.last-used-suffix", " §a✓"),
-                    "§a＋ Add Java account",
-                    "§e⚙ Manage Java accounts",
-                    "§l§bJava accounts",
-                    "§fManage verified Java accounts in this Bedrock Passport.\n§7Removing one only removes the saved sign-in from BedrockPassport.",
-                    getConfig().getString("manage.remove-prefix", "§c✕ "),
-                    getConfig().getString("manage.back", "§b← Back"),
-                    getConfig().getString("manage.confirm-title", "§l§cRemove account"),
-                    "§fRemove %account% from this Bedrock Passport?\n§7The Java/Microsoft account itself is not deleted.",
-                    getConfig().getString("manage.confirm-button", "§cRemove"),
-                    getConfig().getString("manage.cancel-button", "§bCancel")
+                    inactivityTimeoutSeconds
             );
             nextOnlineSessionBridge = new GeyserOnlineSessionBridge(
                     this,
                     pendingBridge,
                     nextOnlineAuthBridge,
                     nextOnlineGate,
+                    nextAccessPolicy,
+                    localizedMessages,
                     getLogger(),
                     holdingWorldInitTimeoutSeconds
             );
@@ -302,6 +309,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
 
             repository = nextRepository;
             credentialVault = nextCredentialVault;
+            accessPolicy = nextAccessPolicy;
             floodgateOnlineIsolation = nextFloodgateOnlineIsolation;
             onlineAuthBridge = nextOnlineAuthBridge;
             onlineGate = nextOnlineGate;
@@ -309,13 +317,14 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             onlineRuntime = true;
             identityProviderType = IdentityProviderType.JAVA_ACCOUNT;
 
-            getLogger().info("BedrockPassport enabled in JAVA_ACCOUNT mode.");
-            getLogger().info("BedrockPassport identity provider: " + IdentityProviderType.JAVA_ACCOUNT.storageKey() + ".");
-            getLogger().info("BedrockPassport enforces Geyser Java auth-type online while JAVA_ACCOUNT mode is active.");
+            getLogger().info(localizedMessages.text("console.online-enabled"));
+            getLogger().info(localizedMessages.text("console.identity-provider", Map.of("provider", IdentityProviderType.JAVA_ACCOUNT.storageKey())));
+            getLogger().info(localizedMessages.text("console.enforce-online"));
             if (nextFloodgateOnlineIsolation.isolated()) {
-                getLogger().info("BedrockPassport isolated Floodgate packet handling from JAVA_ACCOUNT backend logins.");
+                getLogger().info(localizedMessages.text("console.floodgate-isolated"));
             }
-            getLogger().info("Verified Java auth chains are stored encrypted in passport.db using plugins/BedrockPassport/credentials.key.");
+            getLogger().info(localizedMessages.text("console.credential-storage"));
+            logAccessPolicy(nextAccessPolicy);
         } catch (Throwable exception) {
             if (nextOnlineSessionBridge != null) {
                 nextOnlineSessionBridge.close();
@@ -340,21 +349,28 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         int selectors = activeSelectionCount();
         int pendingAdmissions = pendingAdmissionCount();
         if (selectors > 0 || pendingAdmissions > 0) {
-            return new ReloadResult(false,
-                    "BedrockPassport reload refused: " + selectors + " selector(s) and " + pendingAdmissions + " pending login(s) are still active.");
+            return new ReloadResult(false, localizedMessages.text("runtime.reload-refused", Map.of(
+                    "selectors", selectors,
+                    "pending", pendingAdmissions
+            )));
         }
 
         try {
             ConfigMigrator.MigrationResult migration = ConfigMigrator.migrate(this);
+            localizedMessages.reload();
             stopRuntime();
             startRuntime();
             String suffix = migration.changed()
-                    ? " Config schema migrated " + migration.previousVersion() + " -> " + migration.currentVersion() + "."
+                    ? localizedMessages.text("runtime.reload-migration-suffix", Map.of(
+                            "from", migration.previousVersion(),
+                            "to", migration.currentVersion()
+                    ))
                     : "";
-            return new ReloadResult(true, "BedrockPassport reloaded successfully." + suffix);
+            return new ReloadResult(true, localizedMessages.text("runtime.reload-success", Map.of("suffix", suffix)));
         } catch (Throwable exception) {
-            getLogger().severe("BedrockPassport reload failed: " + exception.getClass().getSimpleName() + ": " + exception.getMessage());
-            return new ReloadResult(false, "BedrockPassport reload failed. Check the console; runtime is not active until reload succeeds or the server restarts.");
+            String error = exception.getClass().getSimpleName() + ": " + exception.getMessage();
+            getLogger().severe(localizedMessages.text("console.reload-failed", Map.of("error", error)));
+            return new ReloadResult(false, localizedMessages.text("runtime.reload-failed"));
         }
     }
 
@@ -387,6 +403,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         onlineAuthBridge = null;
         onlineSessionBridge = null;
         credentialVault = null;
+        accessPolicy = null;
         repository = null;
         onlineRuntime = false;
         identityProviderType = null;
@@ -486,6 +503,49 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         return current != null && current.skinsRestorerPresent();
     }
 
+    public boolean allowlistEnabled() {
+        BedrockAccessPolicy current = accessPolicy;
+        return current != null && current.enabled();
+    }
+
+    public int allowlistPlayerCount() {
+        BedrockAccessPolicy current = accessPolicy;
+        return current == null ? 0 : current.playerCount();
+    }
+
+    public int allowlistXuidCount() {
+        BedrockAccessPolicy current = accessPolicy;
+        return current == null ? 0 : current.xuidCount();
+    }
+
+    public String configLocaleName() {
+        return getConfig().getString("language.config", "en_US");
+    }
+
+    public String messagesLocaleName() {
+        LocalizedMessages current = localizedMessages;
+        return current == null ? getConfig().getString("language.messages", "en_US") : current.locale();
+    }
+
+    public String message(String key) {
+        return localizedMessages.text(key);
+    }
+
+    public String message(String key, Map<String, ?> placeholders) {
+        return localizedMessages.text(key, placeholders);
+    }
+
+    private void logAccessPolicy(BedrockAccessPolicy policy) {
+        if (policy == null) {
+            return;
+        }
+        getLogger().info(localizedMessages.text("console.access-policy", Map.of(
+                "state", policy.enabled() ? localizedMessages.text("admin.status.enabled") : localizedMessages.text("admin.status.disabled"),
+                "players", policy.playerCount(),
+                "xuids", policy.xuidCount()
+        )));
+    }
+
     public SessionGuard.SessionSnapshot sessionSnapshot(String javaName) {
         SessionGuard current = sessionGuard;
         return current == null ? null : current.findByJavaName(javaName);
@@ -495,14 +555,14 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         String target = javaName == null ? "" : javaName.trim();
         if (target.isEmpty()) {
             return CompletableFuture.completedFuture(
-                    new LoginResetResult(false, false, "A Java account name is required.")
+                    new LoginResetResult(false, false, localizedMessages.text("runtime.java-name-required"))
             );
         }
 
         IdentityRepository currentRepository = repository;
         if (currentRepository == null) {
             return CompletableFuture.completedFuture(
-                    new LoginResetResult(false, false, "BedrockPassport runtime is not active.")
+                    new LoginResetResult(false, false, localizedMessages.text("runtime.inactive"))
             );
         }
 
@@ -510,7 +570,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         if (currentGate != null && !currentGate.beginCredentialMaintenance()) {
             return CompletableFuture.completedFuture(
                     new LoginResetResult(false, false,
-                            "Login reset refused while a Java-account selector is active. Wait for it to finish or disconnect and try again.")
+                            localizedMessages.text("runtime.reset-busy"))
             );
         }
 
@@ -518,18 +578,18 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                 .handle((count, error) -> {
                     if (error != null) {
                         Throwable cause = unwrapCompletion(error);
-                        getLogger().severe("Could not reset the saved Java login for " + target + ": "
-                                + cause.getClass().getSimpleName() + ": " + cause.getMessage());
-                        return new LoginResetResult(false, false,
-                                "Could not reset the saved Java login. Check the console.");
+                        getLogger().severe(localizedMessages.text("console.reset-one-failed", Map.of(
+                                "name", target,
+                                "error", cause.getClass().getSimpleName() + ": " + cause.getMessage()
+                        )));
+                        return new LoginResetResult(false, false, localizedMessages.text("runtime.reset-one-failed"));
                     }
                     if (count == 0) {
                         return new LoginResetResult(true, false,
-                                "No saved JAVA_ACCOUNT login was found for " + target + ".");
+                                localizedMessages.text("runtime.reset-one-not-found", Map.of("name", target)));
                     }
                     return new LoginResetResult(true, true,
-                            "Reset " + count + " saved login(s) for " + target
-                                    + ". The Passport identity was kept; the player must verify the same Java account next time.");
+                            localizedMessages.text("runtime.reset-one-success", Map.of("count", count, "name", target)));
                 });
 
         if (currentGate != null) {
@@ -542,7 +602,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         IdentityRepository currentRepository = repository;
         if (currentRepository == null) {
             return CompletableFuture.completedFuture(
-                    new LoginResetResult(false, false, "BedrockPassport runtime is not active.")
+                    new LoginResetResult(false, false, localizedMessages.text("runtime.inactive"))
             );
         }
 
@@ -550,7 +610,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         if (currentGate != null && !currentGate.beginCredentialMaintenance()) {
             return CompletableFuture.completedFuture(
                     new LoginResetResult(false, false,
-                            "Global login reset refused while a Java-account selector is active. Wait for it to finish or disconnect and try again.")
+                            localizedMessages.text("runtime.reset-global-busy"))
             );
         }
 
@@ -560,24 +620,23 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     try {
                         rotateCredentialKey();
                     } catch (IOException exception) {
-                        getLogger().severe("Deleted " + count + " saved JAVA_ACCOUNT login credential(s), but could not rotate credentials.key: "
-                                + exception.getClass().getSimpleName() + ": " + exception.getMessage());
+                        getLogger().severe(localizedMessages.text("console.reset-global-partial", Map.of(
+                                "count", count,
+                                "error", exception.getClass().getSimpleName() + ": " + exception.getMessage()
+                        )));
                         return new LoginResetResult(false, true,
-                                "Deleted " + count + " saved Java login(s), but credentials.key could not be rotated. "
-                                        + "Players will re-authenticate, but the global security reset is not complete; check the console.");
+                                localizedMessages.text("runtime.reset-global-partial", Map.of("count", count)));
                     }
-                    getLogger().warning("Reset all saved JAVA_ACCOUNT login credentials and rotated credentials.key. "
-                            + "Passport identities were kept; players will re-authenticate on their next connection.");
+                    getLogger().warning(localizedMessages.text("console.reset-global-success"));
                     return new LoginResetResult(true, true,
-                            "Reset " + count + " saved Java login(s) and rotated credentials.key. "
-                                    + "Passport identities were kept; affected players must verify their Java accounts again.");
+                            localizedMessages.text("runtime.reset-global-success", Map.of("count", count)));
                 })
                 .exceptionally(error -> {
                     Throwable cause = unwrapCompletion(error);
-                    getLogger().severe("Could not delete saved JAVA_ACCOUNT login credentials: "
-                            + cause.getClass().getSimpleName() + ": " + cause.getMessage());
-                    return new LoginResetResult(false, false,
-                            "Could not delete the saved Java logins. Check the console.");
+                    getLogger().severe(localizedMessages.text("console.reset-global-failed", Map.of(
+                            "error", cause.getClass().getSimpleName() + ": " + cause.getMessage()
+                    )));
+                    return new LoginResetResult(false, false, localizedMessages.text("runtime.reset-global-failed"));
                 });
 
         if (currentGate != null) {
