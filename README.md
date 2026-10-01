@@ -229,6 +229,74 @@ security:
 
 The original saved username remains the Java identity used for UUID resolution. This setting does not replace the authentication plugin's own username rules.
 
+## Bedrock access allowlist
+
+BedrockPassport can optionally restrict the Passport flow to selected **Bedrock/Xbox identities**.
+
+Default:
+
+```yaml
+access:
+  allowlist:
+    enabled: false
+    players: []
+    xuids: []
+```
+
+With `enabled: false`, Bedrock access is unrestricted and BedrockPassport behaves as before.
+
+With `enabled: true`, a Bedrock connection is allowed only when either its real Xbox/Bedrock gamertag matches an entry in `players` (case-insensitive) or its XUID matches an entry in `xuids`.
+
+The check happens before the Passport selector and before a backend player is created. It uses the **real Bedrock/Xbox identity**, not the Java/Passport identity selected afterwards, so selecting a saved Java name cannot bypass the allowlist.
+
+Java clients are not affected by this setting.
+
+If the allowlist is enabled while both lists are empty, all Bedrock connections are denied. This can be used as a temporary Bedrock maintenance mode.
+
+Example:
+
+```yaml
+access:
+  allowlist:
+    enabled: true
+    players:
+      - Wandraker
+      - Opqyri
+    xuids: []
+```
+
+XUID entries are useful when a stable identifier is preferred over a changeable Xbox gamertag.
+
+## Localization
+
+BedrockPassport includes English and Russian localization:
+
+```yaml
+language:
+  config: en_US
+  messages: en_US
+```
+
+Supported locales:
+
+- `en_US`
+- `ru_RU`
+
+`language.config` controls the explanatory comments written into `config.yml`. Changing it and running `/bp reload` rewrites the comments in the selected language without changing configuration values.
+
+`language.messages` controls built-in player messages, Bedrock forms, admin command responses and the operational console messages intended for server administrators.
+
+Custom message text can be overridden without forking a locale:
+
+```yaml
+messages:
+  overrides:
+    access:
+      denied: 'Bedrock access is temporarily restricted.'
+```
+
+Missing overrides continue to use the selected built-in locale. Existing customized UI text from older configuration schemas is migrated into `messages.overrides` when possible.
+
 ## Holding environment and timeouts
 
 The Passport selector can remain open longer than a normal Java login connection would normally allow.
@@ -246,7 +314,9 @@ BedrockPassport's own inactivity timeout remains in control while the selector i
 
 BedrockPassport uses a versioned configuration schema and migrates supported older configurations automatically.
 
-Updates preserve administrator values where possible, add newly introduced settings and migrate known legacy keys. Custom UI text is kept when possible.
+Updates preserve administrator values where possible, add newly introduced settings and migrate known legacy keys. Custom UI text is kept when possible and older UI customization is migrated into localized message overrides.
+
+Configuration comments are regenerated in the locale selected by `language.config`, while configuration values remain intact.
 
 You should not normally need to delete `config.yml` when updating.
 
@@ -266,7 +336,7 @@ Alias: `/bp`.
 
 ### `/bp status`
 
-Shows runtime state, active Passport selectors, tracked sessions, pending admissions, the active identity provider, identity trust mode, detected threading model, skin policy and configuration schema.
+Shows runtime state, active Passport selectors, tracked sessions, pending admissions, the active identity provider, identity trust mode, detected threading model, skin policy, Bedrock allowlist state/counts, selected languages and configuration schema.
 
 ### `/bp who <javaName>`
 
@@ -313,7 +383,17 @@ The database uses SQLite and supports migration from supported older schemas. Ba
 ## Default configuration
 
 ```yaml
-config-version: 2
+config-version: 3
+
+language:
+  config: en_US
+  messages: en_US
+
+access:
+  allowlist:
+    enabled: false
+    players: []
+    xuids: []
 
 identity:
   inactivity-timeout-seconds: 60
@@ -325,41 +405,13 @@ identity:
 security:
   first-session-wins: true
   case-insensitive-bedrock-names: true
-  duplicate-login-message: 'This server account is already online.'
   pending-reservation-seconds: 45
 
 skins:
   policy: preserve
 
-form:
-  title: '§l§bBedrockPassport'
-  text: "§fChoose the Java account you want to use.\n§7Authentication still happens on the server after this step."
-  input-label: '§bJava username'
-  input-placeholder: 'Example: Onelsey'
-  invalid-name: 'Use 3-16 characters: A-Z, a-z, 0-9 and _.'
-  name-taken: 'That account is already saved in this Passport.'
-  limit-reached: 'Your Bedrock Passport has reached its account limit.'
-  account-in-use: 'That server account is already online.'
-  passport-in-use: 'This Bedrock/Xbox account already has a pending Passport session.'
-  internal-error: 'BedrockPassport could not save your account. Please reconnect.'
-  timeout: 'You did not choose an account in time. Reconnect and try again.'
-
-selector:
-  title: '§l§bBedrockPassport'
-  text: "§fChoose your server account.\n§7The last used account is marked with §a✓§7."
-  last-used-suffix: ' §a✓'
-  add-account: '§a＋ Add account'
-  manage-accounts: '§e⚙ Manage accounts'
-
-manage:
-  title: '§l§bPassport accounts'
-  text: "§fManage saved account shortcuts.\n§7Removing one does not delete server data or passwords."
-  remove-prefix: '§c✕ '
-  back: '§b← Back'
-  confirm-title: '§l§cRemove account'
-  confirm-text: "§fRemove %account% from this Bedrock Passport?\n§7Server data and passwords are not deleted."
-  confirm-button: '§cRemove'
-  cancel-button: '§bCancel'
+messages:
+  overrides: {}
 
 compatibility:
   holding-world-init-timeout-seconds: 10
