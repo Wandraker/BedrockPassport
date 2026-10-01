@@ -1,0 +1,57 @@
+config-version:
+- Внутренняя версия схемы конфигурации. Не изменяйте её вручную.
+language:
+  config:
+  - Язык комментариев в config.yml.
+  - Поддерживаются: en_US, ru_RU.
+  messages:
+  - Язык встроенных сообщений игрокам, администраторам и основных сообщений консоли.
+  - Поддерживаются: en_US, ru_RU.
+access:
+  allowlist:
+    enabled:
+    - false — BedrockPassport доступен всем Bedrock-игрокам как обычно.
+    - true — до меню Passport допускаются только Bedrock/Xbox-аккаунты из списков ниже.
+    - Java-игроков этот allowlist не ограничивает.
+    players:
+    - Разрешённые реальные Bedrock/Xbox gamertag. Регистр букв не учитывается.
+    - Это именно Xbox-имена игроков, а не выбранные Passport/Java-ники.
+    xuids:
+    - Необязательный список стабильных Xbox XUID. Совпадение XUID также разрешает вход.
+    - Если allowlist включён, а оба списка пусты, вход с Bedrock запрещён всем.
+identity:
+  inactivity-timeout-seconds:
+  - Сколько секунд неактивное меню Passport может оставаться открытым до закрытия.
+  max-accounts-per-xuid:
+  - Максимум сохранённых идентичностей на один Bedrock/Xbox-аккаунт.
+  - 0 или отрицательное значение отключает лимит BedrockPassport.
+  min-name-length:
+  - Минимальная длина LOCAL Java-ника.
+  max-name-length:
+  - Максимальная длина LOCAL Java-ника.
+  name-pattern:
+  - Регулярное выражение для проверки LOCAL Java-ников.
+security:
+  first-session-wins:
+  - Не позволяет второму Java/Bedrock-входу вытеснить уже активную или зарезервированную идентичность.
+  case-insensitive-bedrock-names:
+  - Считать разный регистр букв одной и той же сохранённой/активной серверной идентичностью.
+  pending-reservation-seconds:
+  - Страховочный срок жизни незавершённых защищённых резервов входа.
+skins:
+  policy:
+  - Политика скинов BedrockPassport: preserve, refresh или off.
+messages:
+  overrides:
+  - Необязательные пользовательские переопределения сообщений.
+  - Отсутствующие ключи берутся из language.messages; смена языка не перезаписывает ваши значения.
+  - Ключи совпадают с путями встроенных locale-файлов, например messages.overrides.access.denied.
+compatibility:
+  holding-world-init-timeout-seconds:
+  - Максимальное ожидание инициализации временной среды Geyser.
+  suspend-geyser-downstream-read-timeout:
+  - Временно отключать downstream read timeout Geyser, пока открыто меню выбора.
+  suspend-server-login-read-timeout:
+  - Временно отключать backend login read timeout во время выбора LOCAL-идентичности.
+  form-transition-delay-millis:
+  - Небольшая задержка перед повторным открытием Bedrock-форм после закрытия или возврата назад.

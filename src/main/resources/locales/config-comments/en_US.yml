@@ -1,0 +1,57 @@
+config-version:
+- Internal configuration schema version. Do not change it manually.
+language:
+  config:
+  - Locale used for comments in config.yml.
+  - Supported values: en_US, ru_RU.
+  messages:
+  - Locale used for built-in player, admin and operational console messages.
+  - Supported values: en_US, ru_RU.
+access:
+  allowlist:
+    enabled:
+    - When false, every Bedrock player can use the normal BedrockPassport flow.
+    - When true, only Bedrock/Xbox identities listed below may reach the Passport selector.
+    - Java clients are not affected by this allowlist.
+    players:
+    - Allowed Bedrock/Xbox gamertags. Matching is case-insensitive.
+    - These are the real Bedrock player names, not selected Passport/Java identities.
+    xuids:
+    - Optional stable Xbox XUID allowlist. An XUID match also grants access.
+    - An enabled allowlist with both lists empty denies every Bedrock player.
+identity:
+  inactivity-timeout-seconds:
+  - How long an idle Passport selector may remain open before it is closed.
+  max-accounts-per-xuid:
+  - Maximum saved identities per Bedrock/Xbox account.
+  - Set to 0 or a negative value for no Passport-side limit.
+  min-name-length:
+  - Minimum LOCAL Java username length.
+  max-name-length:
+  - Maximum LOCAL Java username length.
+  name-pattern:
+  - Regular expression used to validate LOCAL Java usernames.
+security:
+  first-session-wins:
+  - Prevent a second Java/Bedrock login from replacing an identity that is already active or reserved.
+  case-insensitive-bedrock-names:
+  - Treat different letter case as the same saved/active server identity.
+  pending-reservation-seconds:
+  - Safety-net lifetime for incomplete protected login reservations.
+skins:
+  policy:
+  - BedrockPassport skin policy: preserve, refresh or off.
+messages:
+  overrides:
+  - Optional custom message overrides.
+  - Missing keys come from language.messages. Changing language never replaces an override.
+  - Override keys use the same paths as the bundled locale files, for example messages.overrides.access.denied.
+compatibility:
+  holding-world-init-timeout-seconds:
+  - Maximum wait for the Geyser holding environment to initialize.
+  suspend-geyser-downstream-read-timeout:
+  - Temporarily suspend Geyser downstream read timeout while the selector is open.
+  suspend-server-login-read-timeout:
+  - Temporarily suspend the backend login read timeout during LOCAL identity selection.
+  form-transition-delay-millis:
+  - Small delay used when reopening Bedrock forms after a close/back transition.
