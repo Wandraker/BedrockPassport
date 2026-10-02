@@ -68,15 +68,15 @@ public final class ConfigMigrator {
     public static MigrationResult migrate(JavaPlugin plugin) {
         plugin.reloadConfig();
         FileConfiguration config = plugin.getConfig();
-        int previousVersion = config.contains("config-version", true) ? config.getInt("config-version", 0) : 0;
+        int previousVersion = config.isSet("config-version") ? config.getInt("config-version", 0) : 0;
         boolean changed = false;
 
-        if (config.contains("compatibility.suspend-backend-read-timeout", true)) {
+        if (config.isSet("compatibility.suspend-backend-read-timeout")) {
             boolean legacyValue = config.getBoolean("compatibility.suspend-backend-read-timeout", true);
-            if (!config.contains("compatibility.suspend-geyser-downstream-read-timeout", true)) {
+            if (!config.isSet("compatibility.suspend-geyser-downstream-read-timeout")) {
                 config.set("compatibility.suspend-geyser-downstream-read-timeout", legacyValue);
             }
-            if (!config.contains("compatibility.suspend-server-login-read-timeout", true)) {
+            if (!config.isSet("compatibility.suspend-server-login-read-timeout")) {
                 config.set("compatibility.suspend-server-login-read-timeout", legacyValue);
             }
             config.set("compatibility.suspend-backend-read-timeout", null);
@@ -110,7 +110,7 @@ public final class ConfigMigrator {
 
         changed |= mergeMissing(config, defaults);
 
-        if (!config.contains("config-version", true) || config.getInt("config-version", 0) != CURRENT_VERSION) {
+        if (!config.isSet("config-version") || config.getInt("config-version", 0) != CURRENT_VERSION) {
             config.set("config-version", CURRENT_VERSION);
             changed = true;
         }
@@ -148,17 +148,15 @@ public final class ConfigMigrator {
     private static boolean mergeMissing(FileConfiguration target, YamlConfiguration defaults) {
         boolean changed = false;
         for (String key : defaults.getKeys(true)) {
-            if (defaults.isConfigurationSection(key)) {
-                if (!target.isConfigurationSection(key)) {
-                    target.createSection(key);
-                    changed = true;
-                }
+            if (target.isSet(key)) {
                 continue;
             }
-            if (!target.contains(key, true)) {
+            if (defaults.isConfigurationSection(key)) {
+                target.createSection(key);
+            } else {
                 target.set(key, defaults.get(key));
-                changed = true;
             }
+            changed = true;
         }
         return changed;
     }
