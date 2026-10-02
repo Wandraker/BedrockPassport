@@ -13,18 +13,15 @@ import static dev.onelsey.bedrockpassport.gate.GateSupport.unwrap;
 final class AccountManagementFlow {
     private final IdentityRepository repository;
     private final GeyserPendingSessionBridge geyser;
-    private final GateMessages messages;
     private final Consumer<GateState> home;
 
     AccountManagementFlow(
             IdentityRepository repository,
             GeyserPendingSessionBridge geyser,
-            GateMessages messages,
             Consumer<GateState> home
     ) {
         this.repository = repository;
         this.geyser = geyser;
-        this.messages = messages;
         this.home = home;
     }
 
@@ -40,15 +37,15 @@ final class AccountManagementFlow {
         long screen = state.beginScreen();
         List<String> buttons = new ArrayList<>();
         for (Identity identity : accounts) {
-            buttons.add(messages.removePrefix() + identity.gameName());
+            buttons.add(state.messages.removePrefix() + identity.gameName());
         }
         int backIndex = buttons.size();
-        buttons.add(messages.back());
+        buttons.add(state.messages.back());
 
         geyser.showMenu(
                 state.handle,
-                messages.manageTitle(),
-                messages.manageText(),
+                state.messages.manageTitle(),
+                state.messages.manageText(),
                 buttons,
                 index -> {
                     if (!state.claimAction(screen)) {
@@ -74,13 +71,13 @@ final class AccountManagementFlow {
         }
 
         long screen = state.beginScreen();
-        String content = messages.removeConfirmText().replace("%account%", identity.gameName());
+        String content = state.messages.removeConfirmText().replace("%account%", identity.gameName());
         geyser.showConfirmation(
                 state.handle,
-                messages.removeConfirmTitle(),
+                state.messages.removeConfirmTitle(),
                 content,
-                messages.removeConfirmButton(),
-                messages.cancelButton(),
+                state.messages.removeConfirmButton(),
+                state.messages.cancelButton(),
                 confirmed -> {
                     if (!state.claimAction(screen)) {
                         return;

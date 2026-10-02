@@ -34,19 +34,6 @@ public final class OnlineIdentityGate implements AutoCloseable {
     private final LocalizedMessages messages;
     private final int maxAccounts;
     private final long inactivityTimeoutNanos;
-    private final String selectorTitle;
-    private final String selectorText;
-    private final String lastUsedSuffix;
-    private final String addAccountText;
-    private final String manageAccountsText;
-    private final String manageTitle;
-    private final String manageText;
-    private final String removePrefix;
-    private final String backText;
-    private final String confirmTitle;
-    private final String confirmText;
-    private final String confirmButton;
-    private final String cancelButton;
 
     private final Map<String, Flow> active = new ConcurrentHashMap<>();
     private final ScheduledExecutorService watchdog;
@@ -71,19 +58,6 @@ public final class OnlineIdentityGate implements AutoCloseable {
         this.messages = messages;
         this.maxAccounts = maxAccounts;
         this.inactivityTimeoutNanos = TimeUnit.SECONDS.toNanos(Math.max(15L, inactivityTimeoutSeconds));
-        this.selectorTitle = messages.text("selector.title");
-        this.selectorText = messages.text("online.selector-text");
-        this.lastUsedSuffix = messages.text("selector.last-used-suffix");
-        this.addAccountText = messages.text("online.add-account");
-        this.manageAccountsText = messages.text("online.manage-accounts");
-        this.manageTitle = messages.text("online.manage-title");
-        this.manageText = messages.text("online.manage-text");
-        this.removePrefix = messages.text("manage.remove-prefix");
-        this.backText = messages.text("manage.back");
-        this.confirmTitle = messages.text("manage.confirm-title");
-        this.confirmText = messages.text("online.confirm-text");
-        this.confirmButton = messages.text("manage.confirm-button");
-        this.cancelButton = messages.text("manage.cancel-button");
 
         this.watchdog = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "BedrockPassport-OnlineGate");
@@ -93,8 +67,8 @@ public final class OnlineIdentityGate implements AutoCloseable {
         this.watchdog.scheduleAtFixedRate(this::expireInactive, 1L, 1L, TimeUnit.SECONDS);
     }
 
-    public void open(GeyserOnlineAuthBridge.HeldSession held) {
-        Flow flow = new Flow(held);
+    public void open(GeyserOnlineAuthBridge.HeldSession held, String locale) {
+        Flow flow = new Flow(held, locale);
         Flow previous = null;
         boolean maintenance;
         synchronized (credentialMaintenanceLock) {
@@ -104,11 +78,11 @@ public final class OnlineIdentityGate implements AutoCloseable {
             }
         }
         if (maintenance) {
-            authBridge.disconnect(held, messages.prefixed("online.maintenance"));
+            authBridge.disconnect(held, messages.prefixed(locale, "online.maintenance"));
             return;
         }
         if (previous != null) {
-            authBridge.disconnect(held, messages.prefixed("online.active-session"));
+            authBridge.disconnect(held, messages.prefixed(locale, "online.active-session"));
             return;
         }
         showHome(flow, null);
@@ -159,25 +133,25 @@ public final class OnlineIdentityGate implements AutoCloseable {
             List<String> buttons = new ArrayList<>();
             for (int i = 0; i < accounts.size(); i++) {
                 Identity identity = accounts.get(i);
-                buttons.add("§b" + identity.gameName() + (i == 0 ? lastUsedSuffix : ""));
+                buttons.add("§b" + identity.gameName() + (i == 0 ? text(flow, "selector.last-used-suffix") : ""));
             }
             int addIndex = buttons.size();
-            buttons.add(addAccountText);
+            buttons.add(text(flow, "online.add-account"));
             int manageIndex = -1;
             if (!accounts.isEmpty()) {
                 manageIndex = buttons.size();
-                buttons.add(manageAccountsText);
+                buttons.add(text(flow, "online.manage-accounts"));
             }
             int finalManageIndex = manageIndex;
 
-            String content = selectorText;
+            String content = text(flow, "online.selector-text");
             if (notice != null && !notice.isBlank()) {
                 content = "§e" + notice + "\n\n" + content;
             }
 
             geyser.showMenu(
                     flow.held.handle(),
-                    selectorTitle,
+                    text(flow, "selector.title"),
                     content,
                     buttons,
                     index -> {
@@ -189,7 +163,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
                             connectExisting(flow, accounts.get(index));
                         } else if (index == addIndex) {
                             if (maxAccounts > 0 && accounts.size() >= maxAccounts) {
-                                showHome(flow, messages.text("online.limit-reached"));
+                                showHome(flow, text(flow, "online.limit-reached"));
                             } else {
                                 addJavaAccount(flow);
                             }
@@ -218,7 +192,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
             }
             if (stored.isEmpty()) {
                 flow.externalAuth = false;
-                offerReauthentication(flow, identity, messages.text("online.reauth-required"));
+                offerReauthentication(flow, identity, text(flow, "online.reauth-required"));
                 return;
             }
 
@@ -227,7 +201,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
                 authChain = decrypt(identity, flow.held.xuid(), stored.get());
             } catch (Throwable throwable) {
                 flow.externalAuth = false;
-                offerReauthentication(flow, identity, messages.text("online.credential-decrypt-failed"));
+                offerReauthentication(flow, identity, text(flow, "online.credential-decrypt-failed"));
                 return;
             }
 
@@ -237,7 +211,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
                 }
                 if (authError != null) {
                     flow.externalAuth = false;
-                    offerReauthentication(flow, identity, messages.text("online.credential-refresh-required"));
+                    offerReauthentication(flow, identity, text(flow, "online.credential-refresh-required"));
                     return;
                 }
                 if (!identity.javaUuid().equals(account.javaUuid())) {
@@ -262,7 +236,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
             if (error != null) {
                 flow.externalAuth = false;
                 authBridge.resumeSelection(flow.held);
-                showHome(flow, messages.text("online.sign-in-failed-retry"));
+                showHome(flow, text(flow, "online.sign-in-failed-retry"));
                 return;
             }
 
@@ -286,9 +260,9 @@ public final class OnlineIdentityGate implements AutoCloseable {
                     flow.externalAuth = false;
                     authBridge.resumeSelection(flow.held);
                     if (claim.status() == ClaimResult.Status.LIMIT_REACHED) {
-                        showHome(flow, messages.text("online.limit-reached"));
+                        showHome(flow, text(flow, "online.limit-reached"));
                     } else {
-                        showHome(flow, messages.text("online.account-save-failed"));
+                        showHome(flow, text(flow, "online.account-save-failed"));
                     }
                     return;
                 }
@@ -310,10 +284,10 @@ public final class OnlineIdentityGate implements AutoCloseable {
         long screen = flow.beginScreen();
         geyser.showConfirmation(
                 flow.held.handle(),
-                messages.text("online.reauth-title"),
-                messages.text("online.reauth-text", Map.of("reason", reason, "account", identity.gameName())),
-                messages.text("online.sign-in-button"),
-                backText,
+                text(flow, "online.reauth-title"),
+                text(flow, "online.reauth-text", Map.of("reason", reason, "account", identity.gameName())),
+                text(flow, "online.sign-in-button"),
+                text(flow, "manage.back"),
                 confirmed -> {
                     if (!flow.claimScreen(screen)) {
                         return;
@@ -338,13 +312,13 @@ public final class OnlineIdentityGate implements AutoCloseable {
             if (error != null) {
                 flow.externalAuth = false;
                 authBridge.resumeSelection(flow.held);
-                showHome(flow, messages.text("online.sign-in-failed"));
+                showHome(flow, text(flow, "online.sign-in-failed"));
                 return;
             }
             if (!identity.javaUuid().equals(account.javaUuid())) {
                 flow.externalAuth = false;
                 authBridge.resumeSelection(flow.held);
-                showHome(flow, messages.text("online.wrong-account", Map.of("account", identity.gameName())));
+                showHome(flow, text(flow, "online.wrong-account", Map.of("account", identity.gameName())));
                 return;
             }
             persistAndConnect(flow, identity, account);
@@ -401,15 +375,15 @@ public final class OnlineIdentityGate implements AutoCloseable {
         long screen = flow.beginScreen();
         List<String> buttons = new ArrayList<>();
         for (Identity identity : accounts) {
-            buttons.add(removePrefix + identity.gameName());
+            buttons.add(text(flow, "manage.remove-prefix") + identity.gameName());
         }
         int backIndex = buttons.size();
-        buttons.add(backText);
+        buttons.add(text(flow, "manage.back"));
 
         geyser.showMenu(
                 flow.held.handle(),
-                manageTitle,
-                manageText,
+                text(flow, "online.manage-title"),
+                text(flow, "online.manage-text"),
                 buttons,
                 index -> {
                     if (!flow.claimScreen(screen)) {
@@ -436,10 +410,10 @@ public final class OnlineIdentityGate implements AutoCloseable {
         long screen = flow.beginScreen();
         geyser.showConfirmation(
                 flow.held.handle(),
-                confirmTitle,
-                confirmText.replace("%account%", identity.gameName()),
-                confirmButton,
-                cancelButton,
+                text(flow, "manage.confirm-title"),
+                text(flow, "online.confirm-text", Map.of("account", identity.gameName())),
+                text(flow, "manage.confirm-button"),
+                text(flow, "manage.cancel-button"),
                 confirmed -> {
                     if (!flow.claimScreen(screen)) {
                         return;
@@ -456,7 +430,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
                         if (error != null) {
                             fail(flow, error);
                         } else {
-                            showHome(flow, removed ? messages.text("online.removed") : messages.text("online.already-removed"));
+                            showHome(flow, removed ? text(flow, "online.removed") : text(flow, "online.already-removed"));
                         }
                     });
                 },
@@ -490,7 +464,7 @@ public final class OnlineIdentityGate implements AutoCloseable {
         logger.log(Level.SEVERE, "BedrockPassport online identity flow failed for XUID " + flow.held.xuid(), cause);
         if (active.remove(flow.held.xuid(), flow)) {
             flow.finished = true;
-            authBridge.disconnect(flow.held, messages.prefixed("online.auth-failed"));
+            authBridge.disconnect(flow.held, prefixed(flow, "online.auth-failed"));
         }
     }
 
@@ -502,9 +476,21 @@ public final class OnlineIdentityGate implements AutoCloseable {
             }
             if (now - flow.lastTouchedNanos > inactivityTimeoutNanos && active.remove(flow.held.xuid(), flow)) {
                 flow.finished = true;
-                authBridge.disconnect(flow.held, messages.prefixed("online.timeout"));
+                authBridge.disconnect(flow.held, prefixed(flow, "online.timeout"));
             }
         }
+    }
+
+    private String text(Flow flow, String key) {
+        return messages.text(flow.locale, key);
+    }
+
+    private String text(Flow flow, String key, Map<String, ?> placeholders) {
+        return messages.text(flow.locale, key, placeholders);
+    }
+
+    private String prefixed(Flow flow, String key) {
+        return messages.prefixed(flow.locale, key);
     }
 
     private static Throwable unwrap(Throwable throwable) {
@@ -521,20 +507,22 @@ public final class OnlineIdentityGate implements AutoCloseable {
         watchdog.shutdownNow();
         for (Flow flow : active.values()) {
             flow.finished = true;
-            authBridge.disconnect(flow.held, messages.prefixed("online.reloading"));
+            authBridge.disconnect(flow.held, prefixed(flow, "online.reloading"));
         }
         active.clear();
     }
 
     private static final class Flow {
         private final GeyserOnlineAuthBridge.HeldSession held;
+        private final String locale;
         private volatile long lastTouchedNanos = System.nanoTime();
         private volatile boolean externalAuth;
         private volatile boolean finished;
         private long screen;
 
-        private Flow(GeyserOnlineAuthBridge.HeldSession held) {
+        private Flow(GeyserOnlineAuthBridge.HeldSession held, String locale) {
             this.held = held;
+            this.locale = locale;
         }
 
         private synchronized long beginScreen() {
