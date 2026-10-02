@@ -1,0 +1,62 @@
+messages:
+  access:
+    denied: 'Доступ із Bedrock зараз дозволено лише вибраним гравцям.'
+  security:
+    duplicate-login: 'Цей серверний акаунт уже в мережі.'
+    synchronizing: 'Стан сесій Passport синхронізується. Перепідключіться.'
+    identity-handoff-failed: 'Передачу ігрової ідентичності безпечно зупинено. Перепідключіться.'
+    bedrock-connection-closed: 'Bedrock-з’єднання закрито.'
+  form:
+    title: '§l§bBedrockPassport'
+    text: "§fВиберіть Java-акаунт, який хочете використовувати.\n§7Авторизація на сервері все одно відбувається після цього кроку."
+    input-label: '§bJava-нік'
+    input-placeholder: 'Наприклад: Onelsey'
+    invalid-name: 'Використовуйте 3–16 символів: A-Z, a-z, 0-9 та _.'
+    name-taken: 'Цей акаунт уже збережено в цьому Passport.'
+    limit-reached: 'У цьому Bedrock Passport досягнуто ліміту акаунтів.'
+    account-in-use: 'Цей серверний акаунт уже в мережі.'
+    passport-in-use: 'Для цього Bedrock/Xbox-акаунта вже активна інша Passport-сесія.'
+    internal-error: 'BedrockPassport не зміг зберегти акаунт. Перепідключіться.'
+    timeout: 'Ви не вибрали акаунт вчасно. Перепідключіться та спробуйте ще раз.'
+  selector:
+    title: '§l§bBedrockPassport'
+    text: "§fВиберіть серверний акаунт.\n§7Останній використаний акаунт позначено §a✓§7."
+    last-used-suffix: ' §a✓'
+    add-account: '§a＋ Додати акаунт'
+    manage-accounts: '§e⚙ Керування акаунтами'
+  manage:
+    title: '§l§bАкаунти Passport'
+    text: "§fКеруйте збереженими акаунтами.\n§7Видалення не зачіпає серверні дані чи паролі."
+    remove-prefix: '§c✕ '
+    back: '§b← Назад'
+    confirm-title: '§l§cВидалити акаунт'
+    confirm-text: "§fВидалити %account% із цього Bedrock Passport?\n§7Серверні дані та паролі не буде видалено."
+    confirm-button: '§cВидалити'
+    cancel-button: '§bСкасувати'
+  online:
+    selector-text: "§fВиберіть підтверджений Java-акаунт.\n§7Для нових акаунтів потрібна авторизація Microsoft/Minecraft."
+    add-account: '§a＋ Додати Java-акаунт'
+    manage-accounts: '§e⚙ Керування Java-акаунтами'
+    manage-title: '§l§bJava-акаунти'
+    manage-text: "§fКеруйте підтвердженими Java-акаунтами в цьому Bedrock Passport.\n§7Видаляється лише збережений вхід BedrockPassport."
+    confirm-text: "§fВидалити %account% із цього Bedrock Passport?\n§7Сам Java/Microsoft-акаунт не буде видалено."
+    limit-reached: 'У цьому Passport досягнуто ліміту Java-акаунтів.'
+    reauth-required: 'Цей Java-акаунт потрібно підтвердити знову.'
+    credential-decrypt-failed: 'Не вдалося розшифрувати збережені дані входу Microsoft.'
+    credential-refresh-required: 'Потрібно оновити вхід Microsoft.'
+    sign-in-failed-retry: 'Вхід Microsoft/Java не вдався. Можна спробувати ще раз.'
+    account-save-failed: 'Не вдалося зберегти цей Java-акаунт.'
+    reauth-title: '§l§eВхід у Java-акаунт'
+    reauth-text: "§f%reason%\n§7Увійдіть знову, щоб підтвердити §b%account%§7."
+    sign-in-button: '§aУвійти'
+    sign-in-failed: 'Вхід Microsoft/Java не вдався.'
+    wrong-account: 'Microsoft-акаунт, у який ви ввійшли, не є %account%.'
+    removed: 'Java-акаунт видалено з цього Passport.'
+    already-removed: 'Акаунт уже було видалено.'
+    maintenance: 'Збережені входи Java зараз скидаються. Перепідключіться за кілька секунд.'
+    active-session: 'Для цього Bedrock/Xbox-акаунта вже активна Passport-сесія.'
+    auth-failed: 'Авторизація Java-акаунта не вдалася. Перепідключіться.'
+    timeout: 'Ви не вибрали акаунт вчасно. Перепідключіться та спробуйте ще раз.'
+    reloading: 'Середовище Passport перезавантажується.'
+    prepare-failed: 'Не вдалося підготувати онлайн-авторизацію Geyser для цієї Passport-сесії.'
+    selector-init-failed: 'Не вдалося ініціалізувати вибір Java-акаунта.'

@@ -269,22 +269,35 @@ XUID entries are useful when a stable identifier is preferred over a changeable 
 
 ## Localization
 
-BedrockPassport includes English and Russian localization:
+BedrockPassport can automatically match player-facing forms and disconnect messages to each Bedrock client's language.
 
 ```yaml
 language:
   config: en_US
   messages: en_US
+  use-player-locale: true
+  player-locale-fallback: en_US
 ```
 
-Supported locales:
+Player/message locales:
 
 - `en_US`
 - `ru_RU`
+- `uk_UA`
+- `de_DE`
+- `es_ES`
 
-`language.config` controls the explanatory comments written into `config.yml`. Changing it and running `/bp reload` rewrites the comments in the selected language without changing configuration values.
+English and Russian include the full administrator/config localization. Ukrainian, German and Spanish currently focus on the player-facing Passport flow; untranslated administrator or console keys fall back to English.
 
-`language.messages` controls built-in player messages, Bedrock forms, admin command responses and the operational console messages intended for server administrators.
+`language.use-player-locale: true` uses the Bedrock client's language when it is supported. Regional variants are matched by language family, so for example `en_GB` uses `en_US` and `es_MX` uses `es_ES`.
+
+Unsupported client languages use `language.player-locale-fallback`.
+
+With `language.use-player-locale: false`, player-facing text behaves as before and uses `language.messages`.
+
+`language.config` controls explanatory comments in `config.yml` and currently supports `en_US` and `ru_RU`.
+
+`language.messages` remains the default language for administrator/console messages and the player language when automatic detection is disabled.
 
 Custom message text can be overridden without forking a locale:
 
@@ -336,7 +349,7 @@ Alias: `/bp`.
 
 ### `/bp status`
 
-Shows runtime state, active Passport selectors, tracked sessions, pending admissions, the active identity provider, identity trust mode, detected threading model, skin policy, Bedrock allowlist state/counts, selected languages and configuration schema.
+Shows runtime state, active Passport selectors, tracked sessions, pending admissions, the active identity provider, identity trust mode, detected threading model, skin policy, Bedrock allowlist state/counts, default languages, automatic player-locale state/fallback and configuration schema.
 
 ### `/bp who <javaName>`
 
@@ -383,11 +396,13 @@ The database uses SQLite and supports migration from supported older schemas. Ba
 ## Default configuration
 
 ```yaml
-config-version: 3
+config-version: 4
 
 language:
   config: en_US
   messages: en_US
+  use-player-locale: true
+  player-locale-fallback: en_US
 
 access:
   allowlist:
