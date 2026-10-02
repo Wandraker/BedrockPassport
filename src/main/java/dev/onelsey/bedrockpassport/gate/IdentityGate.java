@@ -8,6 +8,7 @@ import dev.onelsey.bedrockpassport.data.Identity;
 import dev.onelsey.bedrockpassport.data.IdentityRepository;
 import dev.onelsey.bedrockpassport.identity.LocalIdentityProvider;
 import dev.onelsey.bedrockpassport.integration.GeyserPendingSessionBridge;
+import dev.onelsey.bedrockpassport.i18n.LocalizedMessages;
 import dev.onelsey.bedrockpassport.name.NamePolicy;
 import dev.onelsey.bedrockpassport.security.SessionGuard;
 
@@ -27,7 +28,7 @@ public final class IdentityGate implements AutoCloseable {
     private final NamePolicy namePolicy;
     private final LocalIdentityProvider identityProvider;
     private final SessionGuard sessionGuard;
-    private final GateMessages messages;
+    private final LocalizedMessages localizedMessages;
     private final AccountManagementFlow accountManagement;
     private final int maxAccounts;
     private final long inactivityTimeoutNanos;
@@ -42,7 +43,7 @@ public final class IdentityGate implements AutoCloseable {
             NamePolicy namePolicy,
             LocalIdentityProvider identityProvider,
             SessionGuard sessionGuard,
-            GateMessages messages,
+            LocalizedMessages localizedMessages,
             int maxAccounts,
             long inactivityTimeoutSeconds,
             long holdingWorldInitTimeoutSeconds,
@@ -53,9 +54,9 @@ public final class IdentityGate implements AutoCloseable {
         this.namePolicy = namePolicy;
         this.identityProvider = identityProvider;
         this.sessionGuard = sessionGuard;
-        this.messages = messages;
+        this.localizedMessages = localizedMessages;
         this.maxAccounts = maxAccounts;
-        this.accountManagement = new AccountManagementFlow(repository, geyser, messages, state -> reloadHome(state, null));
+        this.accountManagement = new AccountManagementFlow(repository, geyser, state -> reloadHome(state, null));
         this.inactivityTimeoutNanos = TimeUnit.SECONDS.toNanos(inactivityTimeoutSeconds);
         this.holdingWorldInitTimeoutSeconds = holdingWorldInitTimeoutSeconds;
         this.formTransitionDelayMillis = Math.max(0L, formTransitionDelayMillis);
@@ -67,14 +68,16 @@ public final class IdentityGate implements AutoCloseable {
         this.watchdog.scheduleAtFixedRate(this::checkTimeouts, 1, 1, TimeUnit.SECONDS);
     }
 
-    public CompletableFuture<Identity> resolve(String xuid, UUID floodgateUuid) {
+    public CompletableFuture<Identity> resolve(String xuid, UUID floodgateUuid, String playerLocale) {
+        String locale = localizedMessages.resolvePlayerLocale(playerLocale);
+        GateMessages flowMessages = GateMessages.localized(localizedMessages, locale);
         if (sessionGuard.isBedrockXuidBusy(xuid)) {
-            return CompletableFuture.failedFuture(new PassportSessionBusyException(messages.passportInUse()));
+            return CompletableFuture.failedFuture(new PassportSessionBusyException(flowMessages.passportInUse()));
         }
-        GateState candidate = new GateState(xuid, floodgateUuid, geyser.findByXuid(xuid));
+        GateState candidate = new GateState(xuid, floodgateUuid, geyser.findByXuid(xuid), locale, flowMessages);
         GateState state = active.putIfAbsent(xuid, candidate);
         if (state != null) {
-            return CompletableFuture.failedFuture(new PassportSessionBusyException(messages.passportInUse()));
+            return CompletableFuture.failedFuture(new PassportSessionBusyException(flowMessages.passportInUse()));
         }
 
         candidate.result.whenComplete((identity, error) -> {
@@ -142,21 +145,21 @@ public final class IdentityGate implements AutoCloseable {
         List<String> buttons = new ArrayList<>();
         for (int i = 0; i < accounts.size(); i++) {
             Identity identity = accounts.get(i);
-            buttons.add(identity.gameName() + (i == 0 ? messages.lastUsedSuffix() : ""));
+            buttons.add(identity.gameName() + (i == 0 ? state.messages.lastUsedSuffix() : ""));
         }
 
         boolean canAdd = maxAccounts <= 0 || accounts.size() < maxAccounts;
         int addIndex = canAdd ? buttons.size() : -1;
         if (canAdd) {
-            buttons.add(messages.addAccount());
+            buttons.add(state.messages.addAccount());
         }
         int manageIndex = buttons.size();
-        buttons.add(messages.manageAccounts());
+        buttons.add(state.messages.manageAccounts());
 
-        String content = withError(messages.selectorText(), errorMessage);
+        String content = withError(state.messages.selectorText(), errorMessage);
         geyser.showMenu(
                 state.handle,
-                messages.selectorTitle(),
+                state.messages.selectorTitle(),
                 content,
                 buttons,
                 index -> {
@@ -187,10 +190,10 @@ public final class IdentityGate implements AutoCloseable {
         long screen = state.beginScreen();
         geyser.showNicknameForm(
                 state.handle,
-                messages.title(),
-                messages.text(),
-                messages.inputLabel(),
-                messages.inputPlaceholder(),
+                state.messages.title(),
+                state.messages.text(),
+                state.messages.inputLabel(),
+                state.messages.inputPlaceholder(),
                 state.lastInput,
                 errorMessage,
                 input -> {
@@ -224,7 +227,7 @@ public final class IdentityGate implements AutoCloseable {
         String name = namePolicy.normalize(rawInput);
         state.lastInput = name;
         if (!namePolicy.valid(name)) {
-            showNicknameForm(state, messages.invalidName(), true);
+            showNicknameForm(state, state.messages.invalidName(), true);
             return;
         }
 
@@ -257,11 +260,11 @@ public final class IdentityGate implements AutoCloseable {
                     return;
                 }
                 if (claim.status() == ClaimResult.Status.NAME_TAKEN) {
-                    showNicknameForm(state, messages.nameTaken(), true);
+                    showNicknameForm(state, state.messages.nameTaken(), true);
                     return;
                 }
                 if (claim.status() == ClaimResult.Status.LIMIT_REACHED) {
-                    reloadHome(state, messages.limitReached());
+                    reloadHome(state, state.messages.limitReached());
                     return;
                 }
                 state.result.completeExceptionally(new IllegalStateException("Unexpected identity claim status: " + claim.status()));
@@ -298,7 +301,7 @@ public final class IdentityGate implements AutoCloseable {
                 return;
             }
             if (sessionGuard.reserveForBedrock(preparedIdentity, state.xuid) == SessionGuard.ReservationResult.IN_USE) {
-                reloadHome(state, messages.accountInUse());
+                reloadHome(state, state.messages.accountInUse());
                 return;
             }
             state.reservedJavaUuid = preparedIdentity.javaUuid();
@@ -397,7 +400,7 @@ public final class IdentityGate implements AutoCloseable {
                     continue;
                 }
                 if (now - state.lastActivity.get() >= inactivityTimeoutNanos) {
-                    state.result.completeExceptionally(new GateTimeoutException(messages.timeout()));
+                    state.result.completeExceptionally(new GateTimeoutException(state.messages.timeout()));
                 }
             } catch (Throwable throwable) {
                 state.result.completeExceptionally(throwable);

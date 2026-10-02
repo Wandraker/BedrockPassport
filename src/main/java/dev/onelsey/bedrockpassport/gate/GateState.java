@@ -3,6 +3,7 @@ package dev.onelsey.bedrockpassport.gate;
 import dev.onelsey.bedrockpassport.data.Identity;
 import dev.onelsey.bedrockpassport.integration.GeyserPendingSessionBridge;
 
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -12,6 +13,8 @@ final class GateState {
     final String xuid;
     final UUID floodgateUuid;
     final GeyserPendingSessionBridge.SessionHandle handle;
+    final String locale;
+    final GateMessages messages;
     final CompletableFuture<Identity> result = new CompletableFuture<>();
     final AtomicLong lastActivity = new AtomicLong(System.nanoTime());
     private final AtomicLong screenSequence = new AtomicLong();
@@ -20,10 +23,12 @@ final class GateState {
     volatile UUID reservedJavaUuid;
     volatile GeyserPendingSessionBridge.DownstreamReadTimeoutLease downstreamReadTimeoutLease;
 
-    GateState(String xuid, UUID floodgateUuid, GeyserPendingSessionBridge.SessionHandle handle) {
+    GateState(String xuid, UUID floodgateUuid, GeyserPendingSessionBridge.SessionHandle handle, String locale, GateMessages messages) {
         this.xuid = xuid;
         this.floodgateUuid = floodgateUuid;
         this.handle = handle;
+        this.locale = Objects.requireNonNull(locale, "locale");
+        this.messages = Objects.requireNonNull(messages, "messages");
     }
 
     void touch() {

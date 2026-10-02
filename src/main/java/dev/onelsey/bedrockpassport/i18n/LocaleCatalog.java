@@ -4,34 +4,52 @@ import java.util.List;
 import java.util.Locale;
 
 public final class LocaleCatalog {
-    public static final List<String> SUPPORTED_LOCALES = List.of("en_US", "ru_RU");
+    public static final List<String> CONFIG_LOCALES = List.of("en_US", "ru_RU");
+    public static final List<String> MESSAGE_LOCALES = List.of("en_US", "ru_RU", "uk_UA", "de_DE", "es_ES");
 
     private LocaleCatalog() {
     }
 
-    public static String canonicalize(String input) {
+    public static String canonicalizeConfigLocale(String input) {
+        return canonicalizeExactOrLanguage(input, CONFIG_LOCALES);
+    }
+
+    public static String canonicalizeMessageLocale(String input) {
+        return canonicalizeExactOrLanguage(input, MESSAGE_LOCALES);
+    }
+
+    public static String matchPlayerLocale(String input) {
+        return canonicalizeExactOrLanguage(input, MESSAGE_LOCALES);
+    }
+
+    private static String canonicalizeExactOrLanguage(String input, List<String> supportedLocales) {
         if (input == null || input.isBlank()) {
             return null;
         }
+
         String normalized = input.trim().replace('-', '_').toLowerCase(Locale.ROOT);
-        for (String supported : SUPPORTED_LOCALES) {
+        for (String supported : supportedLocales) {
             if (supported.toLowerCase(Locale.ROOT).equals(normalized)) {
                 return supported;
             }
         }
-        if (!normalized.contains("_")) {
-            String prefix = normalized + "_";
-            String match = null;
-            for (String supported : SUPPORTED_LOCALES) {
-                if (supported.toLowerCase(Locale.ROOT).startsWith(prefix)) {
-                    if (match != null) {
-                        return null;
-                    }
-                    match = supported;
-                }
-            }
-            return match;
+
+        String language = normalized;
+        int separator = normalized.indexOf('_');
+        if (separator >= 0) {
+            language = normalized.substring(0, separator);
         }
-        return null;
+
+        String prefix = language + "_";
+        String match = null;
+        for (String supported : supportedLocales) {
+            if (supported.toLowerCase(Locale.ROOT).startsWith(prefix)) {
+                if (match != null) {
+                    return null;
+                }
+                match = supported;
+            }
+        }
+        return match;
     }
 }

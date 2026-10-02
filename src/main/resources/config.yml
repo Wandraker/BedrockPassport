@@ -1,8 +1,10 @@
-config-version: 3
+config-version: 4
 
 language:
   config: en_US
   messages: en_US
+  use-player-locale: true
+  player-locale-fallback: en_US
 
 access:
   allowlist:

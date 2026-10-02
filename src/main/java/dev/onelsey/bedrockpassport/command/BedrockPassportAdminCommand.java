@@ -149,6 +149,9 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
         sender.sendMessage(ChatUi.value(plugin.message("admin.status.access-xuids"), plugin.allowlistXuidCount()));
         sender.sendMessage(ChatUi.value(plugin.message("admin.status.config-locale"), plugin.configLocaleName()));
         sender.sendMessage(ChatUi.value(plugin.message("admin.status.messages-locale"), plugin.messagesLocaleName()));
+        sender.sendMessage(ChatUi.value(plugin.message("admin.status.player-locale"),
+                plugin.playerLocaleEnabled() ? plugin.message("admin.status.enabled") : plugin.message("admin.status.disabled")));
+        sender.sendMessage(ChatUi.value(plugin.message("admin.status.player-locale-fallback"), plugin.playerLocaleFallbackName()));
         sender.sendMessage(ChatUi.value(plugin.message("admin.status.schema"), plugin.getConfig().getInt("config-version", 0)));
     }
 

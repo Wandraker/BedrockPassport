@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 public final class ConfigMigrator {
-    public static final int CURRENT_VERSION = 3;
+    public static final int CURRENT_VERSION = 4;
 
     private static final Map<String, String> V1_UI_DEFAULTS = Map.ofEntries(
             Map.entry("form.title", "BedrockPassport"),
@@ -115,8 +115,9 @@ public final class ConfigMigrator {
             changed = true;
         }
 
-        String configLocale = requireLocale(config.getString("language.config", "en_US"), "configuration");
-        requireLocale(config.getString("language.messages", "en_US"), "messages");
+        String configLocale = requireConfigLocale(config.getString("language.config", "en_US"));
+        requireMessageLocale(config.getString("language.messages", "en_US"), "messages");
+        requireMessageLocale(config.getString("language.player-locale-fallback", "en_US"), "player locale fallback");
 
         clearComments(config);
         applyComments(config, loadResource(plugin, "locales/config-comments/" + configLocale + ".yml"));
@@ -126,11 +127,20 @@ public final class ConfigMigrator {
         return new MigrationResult(previousVersion, CURRENT_VERSION, changed);
     }
 
-    private static String requireLocale(String value, String purpose) {
-        String canonical = LocaleCatalog.canonicalize(value);
+    private static String requireConfigLocale(String value) {
+        String canonical = LocaleCatalog.canonicalizeConfigLocale(value);
+        if (canonical == null) {
+            throw new IllegalArgumentException("Unsupported configuration locale: " + value
+                    + ". Supported: " + String.join(", ", LocaleCatalog.CONFIG_LOCALES));
+        }
+        return canonical;
+    }
+
+    private static String requireMessageLocale(String value, String purpose) {
+        String canonical = LocaleCatalog.canonicalizeMessageLocale(value);
         if (canonical == null) {
             throw new IllegalArgumentException("Unsupported " + purpose + " locale: " + value
-                    + ". Supported: " + String.join(", ", LocaleCatalog.SUPPORTED_LOCALES));
+                    + ". Supported: " + String.join(", ", LocaleCatalog.MESSAGE_LOCALES));
         }
         return canonical;
     }

@@ -1,0 +1,62 @@
+messages:
+  access:
+    denied: 'Der Bedrock-Zugriff ist derzeit auf ausgewählte Spieler beschränkt.'
+  security:
+    duplicate-login: 'Dieses Serverkonto ist bereits online.'
+    synchronizing: 'Der Passport-Sitzungsstatus wird synchronisiert. Bitte verbinde dich erneut.'
+    identity-handoff-failed: 'Die Identitätsübergabe wurde sicher abgebrochen. Bitte verbinde dich erneut.'
+    bedrock-connection-closed: 'Die Bedrock-Verbindung wurde geschlossen.'
+  form:
+    title: '§l§bBedrockPassport'
+    text: "§fWähle das Java-Konto aus, das du verwenden möchtest.\n§7Die Server-Authentifizierung erfolgt weiterhin nach diesem Schritt."
+    input-label: '§bJava-Benutzername'
+    input-placeholder: 'Beispiel: Onelsey'
+    invalid-name: 'Verwende 3–16 Zeichen: A-Z, a-z, 0-9 und _.'
+    name-taken: 'Dieses Konto ist bereits in diesem Passport gespeichert.'
+    limit-reached: 'Dieser Bedrock Passport hat sein Kontolimit erreicht.'
+    account-in-use: 'Dieses Serverkonto ist bereits online.'
+    passport-in-use: 'Für dieses Bedrock/Xbox-Konto ist bereits eine andere Passport-Sitzung aktiv.'
+    internal-error: 'BedrockPassport konnte das Konto nicht speichern. Bitte verbinde dich erneut.'
+    timeout: 'Du hast nicht rechtzeitig ein Konto ausgewählt. Bitte verbinde dich erneut.'
+  selector:
+    title: '§l§bBedrockPassport'
+    text: "§fWähle dein Serverkonto aus.\n§7Das zuletzt verwendete Konto ist mit §a✓§7 markiert."
+    last-used-suffix: ' §a✓'
+    add-account: '§a＋ Konto hinzufügen'
+    manage-accounts: '§e⚙ Konten verwalten'
+  manage:
+    title: '§l§bPassport-Konten'
+    text: "§fVerwalte gespeicherte Konten.\n§7Beim Entfernen werden keine Serverdaten oder Passwörter gelöscht."
+    remove-prefix: '§c✕ '
+    back: '§b← Zurück'
+    confirm-title: '§l§cKonto entfernen'
+    confirm-text: "§f%account% aus diesem Bedrock Passport entfernen?\n§7Serverdaten und Passwörter werden nicht gelöscht."
+    confirm-button: '§cEntfernen'
+    cancel-button: '§bAbbrechen'
+  online:
+    selector-text: "§fWähle ein verifiziertes Java-Konto.\n§7Für neue Konten ist eine Microsoft/Minecraft-Anmeldung erforderlich."
+    add-account: '§a＋ Java-Konto hinzufügen'
+    manage-accounts: '§e⚙ Java-Konten verwalten'
+    manage-title: '§l§bJava-Konten'
+    manage-text: "§fVerwalte verifizierte Java-Konten in diesem Bedrock Passport.\n§7Beim Entfernen wird nur die gespeicherte BedrockPassport-Anmeldung gelöscht."
+    confirm-text: "§f%account% aus diesem Bedrock Passport entfernen?\n§7Das Java/Microsoft-Konto selbst wird nicht gelöscht."
+    limit-reached: 'Dieser Passport hat sein Java-Kontolimit erreicht.'
+    reauth-required: 'Dieses Java-Konto muss erneut bestätigt werden.'
+    credential-decrypt-failed: 'Die gespeicherten Microsoft-Anmeldedaten konnten nicht entschlüsselt werden.'
+    credential-refresh-required: 'Die Microsoft-Anmeldung muss aktualisiert werden.'
+    sign-in-failed-retry: 'Die Microsoft/Java-Anmeldung ist fehlgeschlagen. Du kannst es erneut versuchen.'
+    account-save-failed: 'Dieses Java-Konto konnte nicht gespeichert werden.'
+    reauth-title: '§l§eJava-Konto anmelden'
+    reauth-text: "§f%reason%\n§7Melde dich erneut an, um §b%account%§7 zu bestätigen."
+    sign-in-button: '§aAnmelden'
+    sign-in-failed: 'Die Microsoft/Java-Anmeldung ist fehlgeschlagen.'
+    wrong-account: 'Das angemeldete Microsoft-Konto ist nicht %account%.'
+    removed: 'Java-Konto aus diesem Passport entfernt.'
+    already-removed: 'Das Konto wurde bereits entfernt.'
+    maintenance: 'Gespeicherte Java-Anmeldungen werden gerade zurückgesetzt. Bitte verbinde dich gleich erneut.'
+    active-session: 'Für dieses Bedrock/Xbox-Konto ist bereits eine Passport-Sitzung aktiv.'
+    auth-failed: 'Die Java-Konto-Authentifizierung ist fehlgeschlagen. Bitte verbinde dich erneut.'
+    timeout: 'Du hast nicht rechtzeitig ein Konto ausgewählt. Bitte verbinde dich erneut.'
+    reloading: 'Die Passport-Laufzeit wird neu geladen.'
+    prepare-failed: 'Die Geyser-Online-Authentifizierung für diese Passport-Sitzung konnte nicht vorbereitet werden.'
+    selector-init-failed: 'Die Java-Kontoauswahl konnte nicht initialisiert werden.'

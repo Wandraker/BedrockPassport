@@ -1,0 +1,62 @@
+messages:
+  access:
+    denied: 'El acceso desde Bedrock está limitado actualmente a jugadores seleccionados.'
+  security:
+    duplicate-login: 'Esta cuenta del servidor ya está conectada.'
+    synchronizing: 'El estado de las sesiones de Passport se está sincronizando. Vuelve a conectarte.'
+    identity-handoff-failed: 'La transferencia de identidad se detuvo de forma segura. Vuelve a conectarte.'
+    bedrock-connection-closed: 'La conexión de Bedrock se cerró.'
+  form:
+    title: '§l§bBedrockPassport'
+    text: "§fElige la cuenta de Java que quieres usar.\n§7La autenticación del servidor seguirá realizándose después de este paso."
+    input-label: '§bNombre de usuario Java'
+    input-placeholder: 'Ejemplo: Onelsey'
+    invalid-name: 'Usa entre 3 y 16 caracteres: A-Z, a-z, 0-9 y _.'
+    name-taken: 'Esta cuenta ya está guardada en este Passport.'
+    limit-reached: 'Este Bedrock Passport ha alcanzado su límite de cuentas.'
+    account-in-use: 'Esta cuenta del servidor ya está conectada.'
+    passport-in-use: 'Esta cuenta de Bedrock/Xbox ya tiene otra sesión de Passport activa.'
+    internal-error: 'BedrockPassport no pudo guardar la cuenta. Vuelve a conectarte.'
+    timeout: 'No elegiste una cuenta a tiempo. Vuelve a conectarte e inténtalo de nuevo.'
+  selector:
+    title: '§l§bBedrockPassport'
+    text: "§fElige tu cuenta del servidor.\n§7La última cuenta usada está marcada con §a✓§7."
+    last-used-suffix: ' §a✓'
+    add-account: '§a＋ Añadir cuenta'
+    manage-accounts: '§e⚙ Gestionar cuentas'
+  manage:
+    title: '§l§bCuentas de Passport'
+    text: "§fGestiona las cuentas guardadas.\n§7Eliminar una no borra datos del servidor ni contraseñas."
+    remove-prefix: '§c✕ '
+    back: '§b← Atrás'
+    confirm-title: '§l§cEliminar cuenta'
+    confirm-text: "§f¿Eliminar %account% de este Bedrock Passport?\n§7No se borrarán los datos del servidor ni las contraseñas."
+    confirm-button: '§cEliminar'
+    cancel-button: '§bCancelar'
+  online:
+    selector-text: "§fElige una cuenta de Java verificada.\n§7Las cuentas nuevas requieren autenticación de Microsoft/Minecraft."
+    add-account: '§a＋ Añadir cuenta Java'
+    manage-accounts: '§e⚙ Gestionar cuentas Java'
+    manage-title: '§l§bCuentas Java'
+    manage-text: "§fGestiona las cuentas Java verificadas de este Bedrock Passport.\n§7Eliminar una solo borra el inicio de sesión guardado en BedrockPassport."
+    confirm-text: "§f¿Eliminar %account% de este Bedrock Passport?\n§7La cuenta Java/Microsoft no se eliminará."
+    limit-reached: 'Este Passport ha alcanzado su límite de cuentas Java.'
+    reauth-required: 'Esta cuenta Java debe verificarse de nuevo.'
+    credential-decrypt-failed: 'No se pudieron descifrar las credenciales de Microsoft guardadas.'
+    credential-refresh-required: 'El inicio de sesión de Microsoft debe actualizarse.'
+    sign-in-failed-retry: 'El inicio de sesión Microsoft/Java falló. Puedes intentarlo de nuevo.'
+    account-save-failed: 'No se pudo guardar esta cuenta Java.'
+    reauth-title: '§l§eInicio de sesión de cuenta Java'
+    reauth-text: "§f%reason%\n§7Inicia sesión de nuevo para verificar §b%account%§7."
+    sign-in-button: '§aIniciar sesión'
+    sign-in-failed: 'El inicio de sesión Microsoft/Java falló.'
+    wrong-account: 'La cuenta de Microsoft con la que iniciaste sesión no es %account%.'
+    removed: 'Cuenta Java eliminada de este Passport.'
+    already-removed: 'La cuenta ya se había eliminado.'
+    maintenance: 'Se están restableciendo los inicios de sesión Java guardados. Vuelve a conectarte en un momento.'
+    active-session: 'Esta cuenta de Bedrock/Xbox ya tiene una sesión de Passport activa.'
+    auth-failed: 'La autenticación de la cuenta Java falló. Vuelve a conectarte.'
+    timeout: 'No elegiste una cuenta a tiempo. Vuelve a conectarte e inténtalo de nuevo.'
+    reloading: 'El entorno de Passport se está recargando.'
+    prepare-failed: 'No se pudo preparar la autenticación online de Geyser para esta sesión de Passport.'
+    selector-init-failed: 'No se pudo inicializar el selector de cuentas Java.'

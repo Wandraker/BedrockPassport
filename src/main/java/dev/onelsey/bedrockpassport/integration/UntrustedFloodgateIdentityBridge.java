@@ -61,14 +61,14 @@ public final class UntrustedFloodgateIdentityBridge implements Listener, AutoClo
         this.cleanupExecutor.scheduleAtFixedRate(this::purgeExpired, 30L, 30L, TimeUnit.SECONDS);
     }
 
-    public void prepare(Channel channel, String xuid, UUID floodgateUuid, UUID javaUuid, String javaName) {
+    public void prepare(Channel channel, String xuid, UUID floodgateUuid, UUID javaUuid, String javaName, String locale) {
         if (channel == null || xuid == null || xuid.isBlank() || floodgateUuid == null || javaUuid == null || javaName == null || javaName.isBlank()) {
             throw new IllegalArgumentException("Incomplete Floodgate identity handoff data");
         }
         purgeExpired();
         pendingByJavaUuid.put(
                 javaUuid,
-                new PendingIdentity(channel, xuid, floodgateUuid, javaUuid, javaName, System.nanoTime() + PENDING_TTL_NANOS)
+                new PendingIdentity(channel, xuid, floodgateUuid, javaUuid, javaName, locale, System.nanoTime() + PENDING_TTL_NANOS)
         );
     }
 
@@ -152,7 +152,7 @@ public final class UntrustedFloodgateIdentityBridge implements Listener, AutoClo
         }
         event.disallow(
                 AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
-                ChatUi.error(messages.text("security.identity-handoff-failed"))
+                ChatUi.error(messages.text(pending.locale(), "security.identity-handoff-failed"))
         );
     }
 
@@ -174,6 +174,7 @@ public final class UntrustedFloodgateIdentityBridge implements Listener, AutoClo
             UUID floodgateUuid,
             UUID javaUuid,
             String javaName,
+            String locale,
             long expiresAtNanos
     ) {
     }

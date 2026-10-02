@@ -1,6 +1,7 @@
 package dev.onelsey.bedrockpassport.security;
 
 import dev.onelsey.bedrockpassport.data.Identity;
+import dev.onelsey.bedrockpassport.i18n.LocalizedMessages;
 import dev.onelsey.bedrockpassport.ui.ChatUi;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -31,8 +32,7 @@ public final class SessionGuard implements Listener, AutoCloseable {
     private final Object lock = new Object();
     private final boolean enabled;
     private final NameCollisionPolicy nameCollisionPolicy;
-    private final String duplicateLoginMessage;
-    private final String synchronizingMessage;
+    private final LocalizedMessages messages;
     private final long pendingReservationNanos;
     private final Map<UUID, ActiveSession> activeByUuid = new HashMap<>();
     private final Map<String, ActiveSession> activeBedrockByExactName = new HashMap<>();
@@ -48,14 +48,12 @@ public final class SessionGuard implements Listener, AutoCloseable {
             Plugin plugin,
             boolean enabled,
             NameCollisionPolicy nameCollisionPolicy,
-            String duplicateLoginMessage,
-            String synchronizingMessage,
+            LocalizedMessages messages,
             long pendingReservationSeconds
     ) {
         this.enabled = enabled;
         this.nameCollisionPolicy = Objects.requireNonNull(nameCollisionPolicy, "nameCollisionPolicy");
-        this.duplicateLoginMessage = Objects.requireNonNull(duplicateLoginMessage, "duplicateLoginMessage");
-        this.synchronizingMessage = Objects.requireNonNull(synchronizingMessage, "synchronizingMessage");
+        this.messages = Objects.requireNonNull(messages, "messages");
         this.pendingReservationNanos = TimeUnit.SECONDS.toNanos(Math.max(5L, pendingReservationSeconds));
         Bukkit.getPluginManager().registerEvents(this, plugin);
         synchronizeOnlinePlayers(plugin);
@@ -256,15 +254,20 @@ public final class SessionGuard implements Listener, AutoCloseable {
         if (!enabled || event.getLoginResult() != AsyncPlayerPreLoginEvent.Result.ALLOWED) {
             return;
         }
+        FloodgatePlayer incomingFloodgate = currentFloodgatePlayer(event.getUniqueId(), event.getName());
+        String incomingBedrockXuid = incomingFloodgate == null ? null : incomingFloodgate.getXuid();
+        String locale = incomingFloodgate == null
+                ? messages.locale()
+                : messages.resolvePlayerLocale(incomingFloodgate.getLanguageCode());
+
         if (!initialSynchronizationComplete) {
             event.disallow(
                     AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
-                    ChatUi.error(synchronizingMessage)
+                    ChatUi.error(messages.text(locale, "security.synchronizing"))
             );
             return;
         }
 
-        String incomingBedrockXuid = floodgateXuid(event.getUniqueId(), event.getName());
         synchronized (lock) {
             cleanupExpiredLocked(System.nanoTime());
 
@@ -275,26 +278,26 @@ public final class SessionGuard implements Listener, AutoCloseable {
                 }
                 ActiveSession active = activeByUuid.get(event.getUniqueId());
                 if (active != null) {
-                    event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, ChatUi.error(duplicateLoginMessage));
+                    event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, ChatUi.error(messages.text(locale, "security.duplicate-login")));
                 }
                 return;
             }
 
             ActiveSession active = activeByUuid.get(event.getUniqueId());
             if (active != null && active.bedrock()) {
-                event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, ChatUi.error(duplicateLoginMessage));
+                event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, ChatUi.error(messages.text(locale, "security.duplicate-login")));
                 return;
             }
 
             ActiveSession sameExactName = activeBedrockByExactName.get(event.getName());
             if (sameExactName != null) {
-                event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, ChatUi.error(duplicateLoginMessage));
+                event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, ChatUi.error(messages.text(locale, "security.duplicate-login")));
                 return;
             }
 
             PendingBedrock pending = pendingBedrockByUuid.get(event.getUniqueId());
             if (pending != null || hasPendingBedrockExactNameLocked(event.getName())) {
-                event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, ChatUi.error(duplicateLoginMessage));
+                event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, ChatUi.error(messages.text(locale, "security.duplicate-login")));
                 return;
             }
 

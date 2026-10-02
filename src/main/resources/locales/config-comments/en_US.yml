@@ -5,8 +5,14 @@ language:
   - Locale used for comments in config.yml.
   - Supported values: en_US, ru_RU.
   messages:
-  - Locale used for built-in player, admin and operational console messages.
-  - Supported values: en_US, ru_RU.
+  - Default locale used for admin/console messages and for player messages when automatic player locale detection is disabled.
+  - Supported values: en_US, ru_RU, uk_UA, de_DE, es_ES.
+  use-player-locale:
+  - When true, BedrockPassport uses each Bedrock client's language for player-facing forms and disconnect messages.
+  - When false, player-facing text uses language.messages exactly as before.
+  player-locale-fallback:
+  - Locale used when automatic player locale detection is enabled but the Bedrock client's language is not supported.
+  - Supported values: en_US, ru_RU, uk_UA, de_DE, es_ES.
 access:
   allowlist:
     enabled:
@@ -44,7 +50,7 @@ skins:
 messages:
   overrides:
   - Optional custom message overrides.
-  - Missing keys come from language.messages. Changing language never replaces an override.
+  - Missing keys come from the selected locale. Overrides apply after locale selection and therefore replace that key for every locale.
   - Override keys use the same paths as the bundled locale files, for example messages.overrides.access.denied.
 compatibility:
   holding-world-init-timeout-seconds:
