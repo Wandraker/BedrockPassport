@@ -82,6 +82,13 @@ public final class GeyserOnlineSessionBridge implements AutoCloseable {
             return;
         }
 
+        String locale;
+        try {
+            locale = messages.resolvePlayerLocale(event.connection().locale());
+        } catch (Throwable ignored) {
+            locale = messages.resolvePlayerLocale(null);
+        }
+
         GeyserPendingSessionBridge.SessionHandle handle = new GeyserPendingSessionBridge.SessionHandle(event.connection());
         String bedrockUsername;
         try {
@@ -92,7 +99,7 @@ public final class GeyserOnlineSessionBridge implements AutoCloseable {
         if (!accessPolicy.allows(bedrockUsername, xuid)) {
             String displayName = bedrockUsername == null || bedrockUsername.isBlank() ? "<unknown>" : bedrockUsername;
             logger.info(messages.text("console.access-denied", java.util.Map.of("player", displayName)));
-            authBridge.disconnectRaw(handle, messages.prefixed("access.denied"));
+            authBridge.disconnectRaw(handle, messages.prefixed(locale, "access.denied"));
             return;
         }
 
@@ -101,7 +108,7 @@ public final class GeyserOnlineSessionBridge implements AutoCloseable {
             held = authBridge.hold(handle, xuid);
         } catch (Throwable throwable) {
             logger.log(Level.SEVERE, "BedrockPassport could not hold the Geyser online-auth session for XUID " + xuid, throwable);
-            authBridge.disconnectRaw(handle, messages.prefixed("online.prepare-failed"));
+            authBridge.disconnectRaw(handle, messages.prefixed(locale, "online.prepare-failed"));
             return;
         }
 
@@ -109,10 +116,10 @@ public final class GeyserOnlineSessionBridge implements AutoCloseable {
             if (error != null) {
                 Throwable cause = unwrap(error);
                 logger.log(Level.SEVERE, "BedrockPassport online holding environment failed for XUID " + xuid, cause);
-                authBridge.disconnect(held, messages.prefixed("online.selector-init-failed"));
+                authBridge.disconnect(held, messages.prefixed(locale, "online.selector-init-failed"));
                 return;
             }
-            gate.open(held);
+            gate.open(held, locale);
         });
     }
 

@@ -5,7 +5,6 @@ import dev.onelsey.bedrockpassport.command.BedrockPassportAdminCommand;
 import dev.onelsey.bedrockpassport.config.ConfigMigrator;
 import dev.onelsey.bedrockpassport.i18n.LocalizedMessages;
 import dev.onelsey.bedrockpassport.data.IdentityRepository;
-import dev.onelsey.bedrockpassport.gate.GateMessages;
 import dev.onelsey.bedrockpassport.gate.IdentityGate;
 import dev.onelsey.bedrockpassport.gate.OnlineIdentityGate;
 import dev.onelsey.bedrockpassport.identity.IdentityProviderType;
@@ -113,7 +112,6 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             nextAccessPolicy = BedrockAccessPolicy.fromConfig(getConfig());
             boolean caseInsensitiveNames = getConfig().getBoolean("security.case-insensitive-bedrock-names", true);
             boolean firstSessionWins = getConfig().getBoolean("security.first-session-wins", true);
-            String duplicateLoginMessage = localizedMessages.text("security.duplicate-login");
             long inactivityTimeoutSeconds = getConfig().getLong("identity.inactivity-timeout-seconds", 60L);
             long pendingReservationSeconds = getConfig().getLong("security.pending-reservation-seconds", 45L);
             boolean suspendGeyserDownstreamReadTimeout = getConfig().getBoolean(
@@ -139,8 +137,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     this,
                     firstSessionWins,
                     nameCollisionPolicy,
-                    duplicateLoginMessage,
-                    localizedMessages.text("security.synchronizing"),
+                    localizedMessages,
                     pendingReservationSeconds
             );
             boolean skinsRestorerPresent = getServer().getPluginManager().isPluginEnabled("SkinsRestorer");
@@ -151,39 +148,13 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     getLogger()
             );
             nextSkinPolicy.register();
-            GateMessages messages = new GateMessages(
-                    localizedMessages.text("form.title"),
-                    localizedMessages.text("form.text"),
-                    localizedMessages.text("form.input-label"),
-                    localizedMessages.text("form.input-placeholder"),
-                    localizedMessages.text("form.invalid-name"),
-                    localizedMessages.text("form.name-taken"),
-                    localizedMessages.text("form.limit-reached"),
-                    localizedMessages.text("form.account-in-use"),
-                    localizedMessages.text("form.passport-in-use"),
-                    localizedMessages.text("form.internal-error"),
-                    localizedMessages.text("form.timeout"),
-                    localizedMessages.text("selector.title"),
-                    localizedMessages.text("selector.text"),
-                    localizedMessages.text("selector.last-used-suffix"),
-                    localizedMessages.text("selector.add-account"),
-                    localizedMessages.text("selector.manage-accounts"),
-                    localizedMessages.text("manage.title"),
-                    localizedMessages.text("manage.text"),
-                    localizedMessages.text("manage.remove-prefix"),
-                    localizedMessages.text("manage.back"),
-                    localizedMessages.text("manage.confirm-title"),
-                    localizedMessages.text("manage.confirm-text"),
-                    localizedMessages.text("manage.confirm-button"),
-                    localizedMessages.text("manage.cancel-button")
-            );
             nextGate = new IdentityGate(
                     nextRepository,
                     geyserBridge,
                     namePolicy,
                     identityProvider,
                     nextSessionGuard,
-                    messages,
+                    localizedMessages,
                     getConfig().getInt("identity.max-accounts-per-xuid", 3),
                     inactivityTimeoutSeconds,
                     getConfig().getLong("compatibility.holding-world-init-timeout-seconds", 10L),
@@ -191,7 +162,6 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             );
             nextFloodgateBridge = new FloodgateIdentityBridge(
                     nextGate,
-                    messages,
                     nextAccessPolicy,
                     localizedMessages,
                     getLogger(),
@@ -525,6 +495,18 @@ public final class BedrockPassportPlugin extends JavaPlugin {
     public String messagesLocaleName() {
         LocalizedMessages current = localizedMessages;
         return current == null ? getConfig().getString("language.messages", "en_US") : current.locale();
+    }
+
+    public boolean playerLocaleEnabled() {
+        LocalizedMessages current = localizedMessages;
+        return current != null && current.usePlayerLocale();
+    }
+
+    public String playerLocaleFallbackName() {
+        LocalizedMessages current = localizedMessages;
+        return current == null
+                ? getConfig().getString("language.player-locale-fallback", "en_US")
+                : current.playerLocaleFallback();
     }
 
     public String message(String key) {
