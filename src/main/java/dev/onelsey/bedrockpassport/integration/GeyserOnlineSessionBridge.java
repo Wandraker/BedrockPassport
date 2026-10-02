@@ -82,12 +82,7 @@ public final class GeyserOnlineSessionBridge implements AutoCloseable {
             return;
         }
 
-        String locale;
-        try {
-            locale = messages.resolvePlayerLocale(event.connection().locale());
-        } catch (Throwable ignored) {
-            locale = messages.resolvePlayerLocale(null);
-        }
+        String locale = resolvePlayerLocale(event);
 
         GeyserPendingSessionBridge.SessionHandle handle = new GeyserPendingSessionBridge.SessionHandle(event.connection());
         String bedrockUsername;
@@ -121,6 +116,14 @@ public final class GeyserOnlineSessionBridge implements AutoCloseable {
             }
             gate.open(held, locale);
         });
+    }
+
+    private String resolvePlayerLocale(SessionInitializeEvent event) {
+        try {
+            return messages.resolvePlayerLocale(event.connection().locale());
+        } catch (Throwable ignored) {
+            return messages.resolvePlayerLocale(null);
+        }
     }
 
     private void onDisconnect(SessionDisconnectEvent event) {
