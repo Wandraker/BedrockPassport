@@ -54,7 +54,7 @@ messages:
   - Override keys use the same paths as the bundled locale files, for example messages.overrides.access.denied.
 compatibility:
   holding-world-init-timeout-seconds:
-  - Maximum wait for the Geyser holding environment to initialize.
+  - Maximum wait for the Geyser holding environment to initialize in JAVA_ACCOUNT mode. LOCAL mode uses Geyser's queued form handling instead.
   suspend-geyser-downstream-read-timeout:
   - Temporarily suspend Geyser downstream read timeout while the selector is open.
   suspend-server-login-read-timeout:

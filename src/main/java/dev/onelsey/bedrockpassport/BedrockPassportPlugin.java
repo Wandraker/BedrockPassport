@@ -157,7 +157,6 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     localizedMessages,
                     getConfig().getInt("identity.max-accounts-per-xuid", 3),
                     inactivityTimeoutSeconds,
-                    getConfig().getLong("compatibility.holding-world-init-timeout-seconds", 10L),
                     getConfig().getLong("compatibility.form-transition-delay-millis", 250L)
             );
             nextFloodgateBridge = new FloodgateIdentityBridge(

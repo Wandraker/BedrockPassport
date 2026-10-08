@@ -54,7 +54,7 @@ messages:
   - Ключи совпадают с путями встроенных locale-файлов, например messages.overrides.access.denied.
 compatibility:
   holding-world-init-timeout-seconds:
-  - Максимальное ожидание инициализации временной среды Geyser.
+  - Максимальное ожидание инициализации временной среды Geyser в режиме JAVA_ACCOUNT. В LOCAL используется штатная очередь форм Geyser.
   suspend-geyser-downstream-read-timeout:
   - Временно отключать downstream read timeout Geyser, пока открыто меню выбора.
   suspend-server-login-read-timeout:

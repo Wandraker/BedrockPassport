@@ -32,7 +32,6 @@ public final class IdentityGate implements AutoCloseable {
     private final AccountManagementFlow accountManagement;
     private final int maxAccounts;
     private final long inactivityTimeoutNanos;
-    private final long holdingWorldInitTimeoutSeconds;
     private final long formTransitionDelayMillis;
     private final Map<String, GateState> active = new ConcurrentHashMap<>();
     private final ScheduledExecutorService watchdog;
@@ -46,7 +45,6 @@ public final class IdentityGate implements AutoCloseable {
             LocalizedMessages localizedMessages,
             int maxAccounts,
             long inactivityTimeoutSeconds,
-            long holdingWorldInitTimeoutSeconds,
             long formTransitionDelayMillis
     ) {
         this.repository = repository;
@@ -58,7 +56,6 @@ public final class IdentityGate implements AutoCloseable {
         this.maxAccounts = maxAccounts;
         this.accountManagement = new AccountManagementFlow(repository, geyser, state -> reloadHome(state, null));
         this.inactivityTimeoutNanos = TimeUnit.SECONDS.toNanos(inactivityTimeoutSeconds);
-        this.holdingWorldInitTimeoutSeconds = holdingWorldInitTimeoutSeconds;
         this.formTransitionDelayMillis = Math.max(0L, formTransitionDelayMillis);
         this.watchdog = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "BedrockPassport-GateWatchdog");
@@ -103,7 +100,7 @@ public final class IdentityGate implements AutoCloseable {
 
         try {
             state.downstreamReadTimeoutLease = geyser.suspendDownstreamReadTimeout(state.handle);
-            geyser.enterHoldingWorld(state.handle, holdingWorldInitTimeoutSeconds).whenComplete((ready, error) -> {
+            geyser.enterHoldingWorld(state.handle).whenComplete((ready, error) -> {
                 if (error != null) {
                     state.result.completeExceptionally(error);
                     return;

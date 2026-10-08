@@ -314,6 +314,10 @@ Missing overrides continue to use the selected built-in locale. Existing customi
 
 The Passport selector can remain open longer than a normal Java login connection would normally allow.
 
+In `LOCAL` mode, BedrockPassport starts Geyser's holding environment and immediately queues the Passport form through Geyser's own form cache. It does not wait for the Bedrock client to send `SetLocalPlayerAsInitializedPacket`; Geyser sends the queued form when the client finishes initialization. `compatibility.holding-world-init-timeout-seconds` therefore does not apply to `LOCAL` mode.
+
+In `JAVA_ACCOUNT` mode, BedrockPassport still waits for the Geyser holding environment to initialize before opening the verified-account flow, so `compatibility.holding-world-init-timeout-seconds` remains the fail-closed timeout for that provider.
+
 While identity selection is active, BedrockPassport temporarily suspends the relevant read timeouts used by:
 
 - the Geyser/MCProtocolLib downstream connection

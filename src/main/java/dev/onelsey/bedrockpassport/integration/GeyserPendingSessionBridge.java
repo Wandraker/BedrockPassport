@@ -138,7 +138,7 @@ public final class GeyserPendingSessionBridge {
         return new DownstreamReadTimeoutLease(channel, handlerName, disabled, originalMillis);
     }
 
-    public CompletableFuture<SessionHandle> enterHoldingWorld(SessionHandle handle, long initTimeoutSeconds) {
+    public CompletableFuture<SessionHandle> enterHoldingWorld(SessionHandle handle) {
         CompletableFuture<SessionHandle> future = new CompletableFuture<>();
         try {
             execute(handle, () -> {
@@ -150,7 +150,7 @@ public final class GeyserPendingSessionBridge {
                     if (!(boolean) sessionIsSentSpawnPacket.invoke(handle.session())) {
                         sessionConnect.invoke(handle.session());
                     }
-                    probeInitialized(handle, future, System.nanoTime() + TimeUnit.SECONDS.toNanos(initTimeoutSeconds));
+                    future.complete(handle);
                 } catch (Throwable throwable) {
                     future.completeExceptionally(bridgeFailure(throwable));
                 }
