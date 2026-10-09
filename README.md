@@ -199,19 +199,20 @@ skins:
 
 With `preserve`:
 
-- an existing meaningful skin can be preserved
+- a real skin supplied by Floodgate from the Bedrock client takes priority for Passport-managed LOCAL sessions
 - Floodgate's synthetic placeholder skin is not treated as a real player skin
-- when no meaningful current skin exists, the normal Floodgate skin pipeline can continue
-- SkinsRestorer can provide a stored skin when installed
+- a gallery/custom Bedrock skin is applied to the selected Java-side Passport identity instead of being rejected just because that identity already has a texture
+- once that Bedrock skin is accepted, SkinsRestorer does not overwrite it during the same join
+- if no real Bedrock skin is available, an existing meaningful skin can be preserved and SkinsRestorer remains a fallback when installed
 
-When SkinsRestorer is available, BedrockPassport also keeps a post-join restore safety net for Passport-selected identities. After the selected Java identity reaches Bukkit join, BedrockPassport asks the public SkinsRestorer API for the skin stored for that Java UUID and reapplies it when present.
+Floodgate applies the accepted texture to the Java-side player profile and refreshes visibility for online observers. This makes the resulting Bedrock skin visible to other Java and Bedrock players, not only to the player who owns it.
 
-This covers reconnects and identity switches where the earlier Floodgate skin timing alone would not restore the saved Java skin.
+When SkinsRestorer is available, BedrockPassport keeps a post-join fallback for Passport-selected identities. It is used only when no real Bedrock skin has won the current join.
 
 Available policies:
 
-- `preserve` — keep an existing meaningful skin; otherwise allow the normal Floodgate/SkinsRestorer result
-- `refresh` — allow the final Floodgate/SkinsRestorer skin to replace the current one
+- `preserve` — prefer a real incoming Bedrock skin, otherwise preserve/fallback to the existing Java/SkinsRestorer skin path
+- `refresh` — allow the final Floodgate skin pipeline to replace the current one; SkinsRestorer remains a fallback only when no real Bedrock skin was accepted
 - `off` — disable BedrockPassport skin handling
 
 SkinsRestorer is optional and runtime-discovered. BedrockPassport does not depend on its internal implementation classes.
