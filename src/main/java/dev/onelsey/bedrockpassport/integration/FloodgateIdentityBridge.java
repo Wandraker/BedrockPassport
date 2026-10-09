@@ -90,6 +90,7 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
             if (identity.javaUuid() == null) {
                 throw new IllegalStateException("Resolved BedrockPassport identity has no Java UUID");
             }
+            gate.armInitialMovementGuard(xuid);
             data.setLinkedPlayer(LinkedPlayer.of(identity.gameName(), identity.javaUuid(), floodgateUuid));
             untrustedIdentityBridge.prepare(data.getChannel(), xuid, floodgateUuid, identity.javaUuid(), identity.gameName(), locale);
             skinPolicy.track(xuid, identity.javaUuid(), identity.gameName());
