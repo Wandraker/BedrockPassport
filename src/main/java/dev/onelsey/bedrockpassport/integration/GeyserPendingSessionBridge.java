@@ -35,12 +35,6 @@ public final class GeyserPendingSessionBridge {
     private final Object geyser;
     private final Method getSessionManager;
     private final Method getAllSessions;
-    private final Method geyserGetSkinUploader;
-    private final Method skinUploaderUploadSkin;
-    private final Method sessionGetClientData;
-    private final Method clientDataGetOriginalString;
-    private final Method sessionGetCertChainData;
-    private final Method sessionGetToken;
     private final Method sessionXuid;
     private final Method sessionIsSentSpawnPacket;
     private final Method sessionIsClosed;
@@ -68,8 +62,6 @@ public final class GeyserPendingSessionBridge {
         Class<?> geyserImplClass = Class.forName("org.geysermc.geyser.GeyserImpl", true, loader);
         Class<?> sessionManagerClass = Class.forName("org.geysermc.geyser.session.SessionManager", true, loader);
         Class<?> sessionClass = Class.forName("org.geysermc.geyser.session.GeyserSession", true, loader);
-        Class<?> skinUploaderClass = Class.forName("org.geysermc.geyser.skin.FloodgateSkinUploader", true, loader);
-        Class<?> bedrockClientDataClass = Class.forName("org.geysermc.geyser.session.auth.BedrockClientData", true, loader);
         Class<?> upstreamClass = Class.forName("org.geysermc.geyser.session.UpstreamSession", true, loader);
         Class<?> downstreamClass = Class.forName("org.geysermc.geyser.session.DownstreamSession", true, loader);
         Class<?> clientSessionClass = Class.forName("org.geysermc.mcprotocollib.network.ClientSession", true, loader);
@@ -85,12 +77,6 @@ public final class GeyserPendingSessionBridge {
         this.geyser = getInstance.invoke(null);
         this.getSessionManager = geyserImplClass.getMethod("getSessionManager");
         this.getAllSessions = sessionManagerClass.getMethod("getAllSessions");
-        this.geyserGetSkinUploader = geyserImplClass.getMethod("getSkinUploader");
-        this.skinUploaderUploadSkin = skinUploaderClass.getMethod("uploadSkin", sessionClass);
-        this.sessionGetClientData = sessionClass.getMethod("getClientData");
-        this.clientDataGetOriginalString = bedrockClientDataClass.getMethod("getOriginalString");
-        this.sessionGetCertChainData = sessionClass.getMethod("getCertChainData");
-        this.sessionGetToken = sessionClass.getMethod("getToken");
         this.sessionXuid = sessionClass.getMethod("xuid");
         this.sessionIsSentSpawnPacket = sessionClass.getMethod("isSentSpawnPacket");
         this.sessionIsClosed = sessionClass.getMethod("isClosed");
@@ -126,48 +112,6 @@ public final class GeyserPendingSessionBridge {
         } catch (ReflectiveOperationException exception) {
             throw failure(exception);
         }
-    }
-
-    public SkinUploadRequest requestBedrockSkinUpload(SessionHandle handle) {
-        Objects.requireNonNull(handle, "handle");
-        try {
-            Object skinUploader = geyserGetSkinUploader.invoke(geyser);
-            if (skinUploader == null) {
-                logger.warning("BedrockPassport could not request the selected identity skin because Geyser's Floodgate skin uploader is unavailable. Check Geyser validate-bedrock-login and Floodgate key configuration.");
-                return SkinUploadRequest.UPLOADER_UNAVAILABLE;
-            }
-
-            Object clientData = sessionGetClientData.invoke(handle.session());
-            String originalClientData = clientData == null ? null : (String) clientDataGetOriginalString.invoke(clientData);
-            if (originalClientData == null || originalClientData.isBlank()) {
-                logger.warning("BedrockPassport could not request the selected identity skin because Geyser no longer has the original Bedrock client data.");
-                return SkinUploadRequest.CLIENT_DATA_UNAVAILABLE;
-            }
-
-            Object certChain = sessionGetCertChainData.invoke(handle.session());
-            Object token = sessionGetToken.invoke(handle.session());
-            boolean hasCertChain = certChain instanceof Collection<?> collection && !collection.isEmpty();
-            boolean hasToken = token instanceof String value && !value.isBlank();
-            if (!hasCertChain && !hasToken) {
-                logger.warning("BedrockPassport could not request the selected identity skin because Geyser no longer has Bedrock authentication data.");
-                return SkinUploadRequest.AUTH_DATA_UNAVAILABLE;
-            }
-
-            skinUploaderUploadSkin.invoke(skinUploader, handle.session());
-            logger.fine("BedrockPassport requested an early Geyser/Floodgate skin upload for the selected Passport identity.");
-            return SkinUploadRequest.REQUESTED;
-        } catch (Throwable throwable) {
-            logger.warning("BedrockPassport could not request the selected identity skin through Geyser: " + bridgeFailure(throwable).getMessage());
-            return SkinUploadRequest.FAILED;
-        }
-    }
-
-    public enum SkinUploadRequest {
-        REQUESTED,
-        UPLOADER_UNAVAILABLE,
-        CLIENT_DATA_UNAVAILABLE,
-        AUTH_DATA_UNAVAILABLE,
-        FAILED
     }
 
     public DownstreamReadTimeoutLease suspendDownstreamReadTimeout(SessionHandle handle) {
