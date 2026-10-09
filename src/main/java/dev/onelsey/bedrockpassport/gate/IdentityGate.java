@@ -340,6 +340,11 @@ public final class IdentityGate implements AutoCloseable {
         }
     }
 
+    public boolean armInitialMovementGuard(String xuid) {
+        GeyserPendingSessionBridge.SessionHandle handle = geyser.findByXuid(xuid);
+        return handle != null && geyser.armInitialMovementGuard(handle);
+    }
+
     public void releaseReservation(String xuid, UUID javaUuid) {
         sessionGuard.releaseBedrockReservation(javaUuid, xuid);
     }
