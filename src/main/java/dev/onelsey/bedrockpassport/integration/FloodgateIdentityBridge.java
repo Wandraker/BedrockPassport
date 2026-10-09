@@ -94,6 +94,10 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
             data.setLinkedPlayer(LinkedPlayer.of(identity.gameName(), identity.javaUuid(), floodgateUuid));
             untrustedIdentityBridge.prepare(data.getChannel(), xuid, floodgateUuid, identity.javaUuid(), identity.gameName(), locale);
             skinPolicy.track(xuid, identity.javaUuid(), identity.gameName());
+            GeyserPendingSessionBridge.SkinUploadRequest skinUploadRequest = gate.requestBedrockSkinUpload(xuid);
+            if (skinUploadRequest != GeyserPendingSessionBridge.SkinUploadRequest.REQUESTED) {
+                logger.fine("BedrockPassport early skin upload request for " + identity.gameName() + " returned " + skinUploadRequest + ".");
+            }
         } catch (PassportSessionBusyException busy) {
             releaseIfSelected(xuid, identity);
             data.setDisconnectReason(disconnectReason(busy.getMessage()));
