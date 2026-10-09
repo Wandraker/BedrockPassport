@@ -19,6 +19,7 @@ import java.lang.reflect.Method;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -35,6 +36,7 @@ public final class FloodgateSkinPolicy implements Listener, AutoCloseable {
     private final SkinApplyEvent.SkinData floodgateDefaultSkin;
     private final Map<String, ManagedIdentity> managedByXuid = new ConcurrentHashMap<>();
     private final Map<UUID, ManagedIdentity> pendingJoinRestoreByUuid = new ConcurrentHashMap<>();
+    private final Set<UUID> preferredBedrockSkinByUuid = ConcurrentHashMap.newKeySet();
     private FloodgateSubscriber<SkinApplyEvent> subscriber;
     private Plugin skinsRestorerPlugin;
     private boolean bukkitListenerRegistered;
@@ -89,13 +91,22 @@ public final class FloodgateSkinPolicy implements Listener, AutoCloseable {
             return;
         }
 
+        SkinApplyEvent.SkinData incomingSkin = event.newSkin();
+        boolean meaningfulIncomingSkin = incomingSkin != null && !sameSkin(incomingSkin, floodgateDefaultSkin);
+        if (meaningfulIncomingSkin) {
+            preferredBedrockSkinByUuid.add(managed.javaUuid());
+            event.setCancelled(false);
+            logger.fine("Applying Floodgate/Bedrock skin for Passport identity " + managed.javaName() + ".");
+            return;
+        }
+
         SkinApplyEvent.SkinData currentSkin = event.currentSkin();
         boolean meaningfulCurrentSkin = currentSkin != null && !sameSkin(currentSkin, floodgateDefaultSkin);
         if (policy == Policy.PRESERVE && meaningfulCurrentSkin) {
             event.setCancelled(true);
-        } else {
-            event.setCancelled(false);
+            return;
         }
+        event.setCancelled(false);
     }
 
     @EventHandler
@@ -119,6 +130,11 @@ public final class FloodgateSkinPolicy implements Listener, AutoCloseable {
 
     private void restoreSkinsRestorerSkin(Player player, ManagedIdentity managed) {
         if (!player.isOnline() || !managed.javaUuid().equals(player.getUniqueId()) || !managed.javaName().equals(player.getName())) {
+            return;
+        }
+
+        if (preferredBedrockSkinByUuid.contains(managed.javaUuid())) {
+            logger.fine("Skipping SkinsRestorer fallback because a Bedrock skin is active for Passport identity " + managed.javaName() + ".");
             return;
         }
 
@@ -199,6 +215,10 @@ public final class FloodgateSkinPolicy implements Listener, AutoCloseable {
         long now = System.nanoTime();
         managedByXuid.entrySet().removeIf(entry -> entry.getValue().expiresAtNanos() <= now);
         pendingJoinRestoreByUuid.entrySet().removeIf(entry -> entry.getValue().expiresAtNanos() <= now);
+        preferredBedrockSkinByUuid.removeIf(uuid -> {
+            ManagedIdentity managed = pendingJoinRestoreByUuid.get(uuid);
+            return managed == null || managed.expiresAtNanos() <= now;
+        });
     }
 
     public void release(String xuid) {
@@ -208,6 +228,7 @@ public final class FloodgateSkinPolicy implements Listener, AutoCloseable {
         ManagedIdentity managed = managedByXuid.remove(xuid);
         if (managed != null) {
             pendingJoinRestoreByUuid.remove(managed.javaUuid(), managed);
+            preferredBedrockSkinByUuid.remove(managed.javaUuid());
         }
     }
 
@@ -237,6 +258,7 @@ public final class FloodgateSkinPolicy implements Listener, AutoCloseable {
         skinsRestorerPlugin = null;
         managedByXuid.clear();
         pendingJoinRestoreByUuid.clear();
+        preferredBedrockSkinByUuid.clear();
     }
 
     private record ManagedIdentity(UUID javaUuid, String javaName, long expiresAtNanos) {
