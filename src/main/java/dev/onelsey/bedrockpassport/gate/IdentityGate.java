@@ -6,6 +6,7 @@ import static dev.onelsey.bedrockpassport.gate.GateSupport.withError;
 import dev.onelsey.bedrockpassport.data.ClaimResult;
 import dev.onelsey.bedrockpassport.data.Identity;
 import dev.onelsey.bedrockpassport.data.IdentityRepository;
+import dev.onelsey.bedrockpassport.identity.LocalIdentityCanonicalizer;
 import dev.onelsey.bedrockpassport.identity.LocalIdentityProvider;
 import dev.onelsey.bedrockpassport.integration.GeyserPendingSessionBridge;
 import dev.onelsey.bedrockpassport.i18n.LocalizedMessages;
@@ -27,6 +28,7 @@ public final class IdentityGate implements AutoCloseable {
     private final GeyserPendingSessionBridge geyser;
     private final NamePolicy namePolicy;
     private final LocalIdentityProvider identityProvider;
+    private final LocalIdentityCanonicalizer canonicalizer;
     private final SessionGuard sessionGuard;
     private final LocalizedMessages localizedMessages;
     private final AccountManagementFlow accountManagement;
@@ -41,6 +43,7 @@ public final class IdentityGate implements AutoCloseable {
             GeyserPendingSessionBridge geyser,
             NamePolicy namePolicy,
             LocalIdentityProvider identityProvider,
+            LocalIdentityCanonicalizer canonicalizer,
             SessionGuard sessionGuard,
             LocalizedMessages localizedMessages,
             int maxAccounts,
@@ -51,6 +54,7 @@ public final class IdentityGate implements AutoCloseable {
         this.geyser = geyser;
         this.namePolicy = namePolicy;
         this.identityProvider = identityProvider;
+        this.canonicalizer = canonicalizer;
         this.sessionGuard = sessionGuard;
         this.localizedMessages = localizedMessages;
         this.maxAccounts = maxAccounts;
@@ -228,21 +232,21 @@ public final class IdentityGate implements AutoCloseable {
             return;
         }
 
-        identityProvider.resolve(name).whenComplete((javaUuid, uuidError) -> {
+        canonicalizer.resolve(name).whenComplete((canonical, canonicalError) -> {
             if (state.result.isDone()) {
                 return;
             }
-            if (uuidError != null) {
-                state.result.completeExceptionally(unwrap(uuidError));
+            if (canonicalError != null) {
+                state.result.completeExceptionally(unwrap(canonicalError));
                 return;
             }
 
             repository.claim(
                     state.xuid,
                     identityProvider.type(),
-                    name,
-                    javaUuid,
-                    identityProvider.uuidMode(),
+                    canonical.gameName(),
+                    canonical.javaUuid(),
+                    canonicalizer.uuidMode(),
                     maxAccounts
             ).whenComplete((claim, claimError) -> {
                 if (state.result.isDone()) {
@@ -281,13 +285,22 @@ public final class IdentityGate implements AutoCloseable {
             return;
         }
 
-        CompletableFuture<Identity> prepared;
-        if (identity.javaUuid() != null && identityProvider.uuidMode().equals(identity.uuidMode())) {
-            prepared = CompletableFuture.completedFuture(identity);
-        } else {
-            prepared = identityProvider.resolve(identity.gameName())
-                    .thenCompose(uuid -> repository.updateJavaIdentity(identity.id(), state.xuid, uuid, identityProvider.uuidMode()));
-        }
+        CompletableFuture<Identity> prepared = canonicalizer.resolve(identity.gameName())
+                .thenCompose(canonical -> {
+                    boolean alreadyCanonical = identity.gameName().equals(canonical.gameName())
+                            && canonical.javaUuid().equals(identity.javaUuid())
+                            && canonicalizer.uuidMode().equals(identity.uuidMode());
+                    if (alreadyCanonical) {
+                        return CompletableFuture.completedFuture(identity);
+                    }
+                    return repository.updateCanonicalIdentity(
+                            identity.id(),
+                            state.xuid,
+                            canonical.gameName(),
+                            canonical.javaUuid(),
+                            canonicalizer.uuidMode()
+                    );
+                });
 
         prepared.whenComplete((preparedIdentity, prepareError) -> {
             if (state.result.isDone()) {
