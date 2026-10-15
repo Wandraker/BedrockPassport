@@ -11,6 +11,7 @@ depend:
 softdepend:
   - floodgate
   - SkinsRestorer
+  - AuthMe
 loadbefore:
   - AlixSystem
 libraries:
