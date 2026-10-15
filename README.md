@@ -152,7 +152,9 @@ The saved authentication chain is encrypted with AES-GCM in `passport.db`; the e
 
 AuthMe remains a separate authentication layer. BedrockPassport performs the identity handoff first, then AuthMe can perform its normal password or registration flow.
 
-No dedicated BedrockPassport ↔ AuthMe adapter is required.
+In LOCAL mode, BedrockPassport also uses AuthMe's public API to resolve the canonical letter case of an already registered username before deriving its offline UUID. This prevents case variants such as `PlayerName` and `playername` from becoming different UUID-backed server identities while AuthMe treats them as the same account.
+
+If AuthMe has no registration for the requested name yet, BedrockPassport reuses the earliest matching LOCAL Passport spelling when case-insensitive matching is enabled. Otherwise the first new spelling becomes the canonical LOCAL identity.
 
 ### AlixSystem
 
@@ -228,7 +230,9 @@ security:
 
 `Onelsey`, `onelsey` and `ONSELSEY` are treated as the same saved entry inside one Passport and as the same Bedrock-side session target.
 
-The original saved username remains the Java identity used for UUID resolution. This setting does not replace the authentication plugin's own username rules.
+LOCAL UUID resolution also keeps one canonical spelling for a case-insensitive identity. When AuthMe already has the account, AuthMe's stored real-name casing is authoritative. Otherwise an existing matching Passport spelling is reused before a new offline UUID is derived.
+
+This setting does not replace the authentication plugin's password or ownership rules.
 
 ## Bedrock access allowlist
 
