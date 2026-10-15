@@ -293,6 +293,14 @@ public final class IdentityRepository implements AutoCloseable {
         return submit(() -> listByXuidNow(xuid, providerType));
     }
 
+    public CompletableFuture<Optional<Identity>> findCanonicalIdentityByName(
+            IdentityProviderType providerType,
+            String gameName,
+            boolean caseInsensitive
+    ) {
+        return submit(() -> findCanonicalIdentityByNameNow(providerType, gameName, caseInsensitive));
+    }
+
     public CompletableFuture<Optional<StoredCredential>> findCredential(long identityId, String xuid) {
         return submit(() -> findCredentialNow(identityId, xuid));
     }
@@ -330,6 +338,16 @@ public final class IdentityRepository implements AutoCloseable {
 
     public CompletableFuture<Identity> updateJavaIdentity(long identityId, String xuid, UUID javaUuid, String uuidMode) {
         return submit(() -> updateJavaIdentityNow(identityId, xuid, javaUuid, uuidMode));
+    }
+
+    public CompletableFuture<Identity> updateCanonicalIdentity(
+            long identityId,
+            String xuid,
+            String gameName,
+            UUID javaUuid,
+            String uuidMode
+    ) {
+        return submit(() -> updateCanonicalIdentityNow(identityId, xuid, gameName, javaUuid, uuidMode));
     }
 
     public CompletableFuture<Identity> markUsed(long identityId, String xuid) {
@@ -431,6 +449,25 @@ public final class IdentityRepository implements AutoCloseable {
         }
     }
 
+    private Optional<Identity> findCanonicalIdentityByNameNow(
+            IdentityProviderType providerType,
+            String gameName,
+            boolean caseInsensitive
+    ) throws SQLException {
+        String sql = caseInsensitive
+                ? "SELECT id, xuid, provider_type, game_name, java_uuid, uuid_mode, created_at, last_used " +
+                "FROM identities WHERE provider_type=? AND game_name=? COLLATE NOCASE ORDER BY created_at ASC, id ASC LIMIT 1"
+                : "SELECT id, xuid, provider_type, game_name, java_uuid, uuid_mode, created_at, last_used " +
+                "FROM identities WHERE provider_type=? AND game_name=? ORDER BY created_at ASC, id ASC LIMIT 1";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, providerType.storageKey());
+            statement.setString(2, gameName);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? Optional.of(readIdentity(result)) : Optional.empty();
+            }
+        }
+    }
+
     private Optional<Identity> findByXuidAndNameNow(String xuid, IdentityProviderType providerType, String gameName) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT id, xuid, provider_type, game_name, java_uuid, uuid_mode, created_at, last_used FROM identities WHERE xuid=? AND provider_type=? AND name_key=?")) {
@@ -454,8 +491,11 @@ public final class IdentityRepository implements AutoCloseable {
         Optional<Identity> existing = findByXuidAndNameNow(xuid, providerType, gameName);
         if (existing.isPresent()) {
             Identity identity = existing.get();
-            if (identity.javaUuid() == null || identity.uuidMode() == null || !uuidMode.equals(identity.uuidMode())) {
-                identity = updateJavaIdentityNow(identity.id(), xuid, javaUuid, uuidMode);
+            if (!identity.gameName().equals(gameName)
+                    || !javaUuid.equals(identity.javaUuid())
+                    || identity.uuidMode() == null
+                    || !uuidMode.equals(identity.uuidMode())) {
+                identity = updateCanonicalIdentityNow(identity.id(), xuid, gameName, javaUuid, uuidMode);
             }
             return new ClaimResult(ClaimResult.Status.EXISTING, identity);
         }
@@ -505,6 +545,28 @@ public final class IdentityRepository implements AutoCloseable {
                 return result.next() ? result.getInt(1) : 0;
             }
         }
+    }
+
+    private Identity updateCanonicalIdentityNow(
+            long identityId,
+            String xuid,
+            String gameName,
+            UUID javaUuid,
+            String uuidMode
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE identities SET game_name=?, name_key=?, java_uuid=?, uuid_mode=? WHERE id=? AND xuid=?")) {
+            statement.setString(1, gameName);
+            statement.setString(2, nameCollisionPolicy.key(gameName));
+            statement.setString(3, javaUuid.toString());
+            statement.setString(4, uuidMode);
+            statement.setLong(5, identityId);
+            statement.setString(6, xuid);
+            if (statement.executeUpdate() != 1) {
+                throw new SQLException("Identity no longer exists");
+            }
+        }
+        return findByIdNow(identityId, xuid).orElseThrow(() -> new SQLException("Identity disappeared after canonical update"));
     }
 
     private Identity updateJavaIdentityNow(long identityId, String xuid, UUID javaUuid, String uuidMode) throws SQLException {
