@@ -8,7 +8,9 @@ import dev.onelsey.bedrockpassport.data.IdentityRepository;
 import dev.onelsey.bedrockpassport.gate.IdentityGate;
 import dev.onelsey.bedrockpassport.gate.OnlineIdentityGate;
 import dev.onelsey.bedrockpassport.identity.IdentityProviderType;
+import dev.onelsey.bedrockpassport.identity.LocalIdentityCanonicalizer;
 import dev.onelsey.bedrockpassport.identity.LocalIdentityProvider;
+import dev.onelsey.bedrockpassport.integration.AuthMeNameResolver;
 import dev.onelsey.bedrockpassport.integration.FloodgateIdentityBridge;
 import dev.onelsey.bedrockpassport.integration.FloodgateSkinPolicy;
 import dev.onelsey.bedrockpassport.integration.FloodgateOnlineIsolation;
@@ -132,6 +134,14 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     getConfig().getString("identity.name-pattern", "^[A-Za-z0-9_]+$")
             );
             LocalIdentityProvider identityProvider = new LocalIdentityProvider();
+            Plugin authMePlugin = getServer().getPluginManager().getPlugin("AuthMe");
+            AuthMeNameResolver authMeNameResolver = new AuthMeNameResolver(authMePlugin, getLogger());
+            LocalIdentityCanonicalizer identityCanonicalizer = new LocalIdentityCanonicalizer(
+                    nextRepository,
+                    identityProvider,
+                    authMeNameResolver,
+                    nameCollisionPolicy.caseInsensitive()
+            );
             nextUntrustedIdentityBridge = new UntrustedFloodgateIdentityBridge(this, getLogger(), localizedMessages);
             nextSessionGuard = new SessionGuard(
                     this,
@@ -153,6 +163,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     geyserBridge,
                     namePolicy,
                     identityProvider,
+                    identityCanonicalizer,
                     nextSessionGuard,
                     localizedMessages,
                     getConfig().getInt("identity.max-accounts-per-xuid", 3),
@@ -192,6 +203,9 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             getLogger().info(localizedMessages.text("console.local-enabled"));
             getLogger().info(localizedMessages.text("console.identity-provider", Map.of("provider", identityProvider.type().storageKey())));
             getLogger().info(localizedMessages.text("console.uuid-mode", Map.of("mode", identityProvider.uuidMode())));
+            if (authMeNameResolver.available()) {
+                getLogger().info("BedrockPassport AuthMe canonical username casing integration: enabled.");
+            }
             getLogger().info(localizedMessages.text("console.collision-mode", Map.of("mode", nameCollisionPolicy.mode())));
             getLogger().info(localizedMessages.text("console.first-session-wins", Map.of("value", firstSessionWins)));
             getLogger().info(localizedMessages.text("console.floodgate-trust"));
