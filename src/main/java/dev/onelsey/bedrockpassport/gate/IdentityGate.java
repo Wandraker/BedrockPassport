@@ -241,13 +241,13 @@ public final class IdentityGate implements AutoCloseable {
                 return;
             }
 
-            repository.claim(
+            repository.claimCanonicalLocal(
                     state.xuid,
-                    identityProvider.type(),
                     canonical.gameName(),
                     canonical.javaUuid(),
                     canonicalizer.uuidMode(),
-                    maxAccounts
+                    maxAccounts,
+                    canonical.source() == LocalIdentityCanonicalizer.Source.AUTHME
             ).whenComplete((claim, claimError) -> {
                 if (state.result.isDone()) {
                     return;
