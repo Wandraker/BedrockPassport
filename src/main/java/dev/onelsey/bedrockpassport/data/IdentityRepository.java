@@ -336,6 +336,24 @@ public final class IdentityRepository implements AutoCloseable {
         return submit(() -> claimNow(xuid, providerType, gameName, javaUuid, uuidMode, maxAccounts));
     }
 
+    public CompletableFuture<ClaimResult> claimCanonicalLocal(
+            String xuid,
+            String gameName,
+            UUID javaUuid,
+            String uuidMode,
+            int maxAccounts,
+            boolean authoritativeName
+    ) {
+        return submit(() -> claimCanonicalLocalNow(
+                xuid,
+                gameName,
+                javaUuid,
+                uuidMode,
+                maxAccounts,
+                authoritativeName
+        ));
+    }
+
     public CompletableFuture<Identity> updateJavaIdentity(long identityId, String xuid, UUID javaUuid, String uuidMode) {
         return submit(() -> updateJavaIdentityNow(identityId, xuid, javaUuid, uuidMode));
     }
@@ -468,6 +486,23 @@ public final class IdentityRepository implements AutoCloseable {
         }
     }
 
+    private Optional<Identity> findByXuidAndNameCaseInsensitiveNow(
+            String xuid,
+            IdentityProviderType providerType,
+            String gameName
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT id, xuid, provider_type, game_name, java_uuid, uuid_mode, created_at, last_used " +
+                        "FROM identities WHERE xuid=? AND provider_type=? AND game_name=? COLLATE NOCASE ORDER BY created_at ASC, id ASC LIMIT 1")) {
+            statement.setString(1, xuid);
+            statement.setString(2, providerType.storageKey());
+            statement.setString(3, gameName);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? Optional.of(readIdentity(result)) : Optional.empty();
+            }
+        }
+    }
+
     private Optional<Identity> findByXuidAndNameNow(String xuid, IdentityProviderType providerType, String gameName) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT id, xuid, provider_type, game_name, java_uuid, uuid_mode, created_at, last_used FROM identities WHERE xuid=? AND provider_type=? AND name_key=?")) {
@@ -478,6 +513,67 @@ public final class IdentityRepository implements AutoCloseable {
                 return result.next() ? Optional.of(readIdentity(result)) : Optional.empty();
             }
         }
+    }
+
+    private ClaimResult claimCanonicalLocalNow(
+            String xuid,
+            String gameName,
+            UUID javaUuid,
+            String uuidMode,
+            int maxAccounts,
+            boolean authoritativeName
+    ) throws SQLException {
+        Optional<Identity> samePassport = findByXuidAndNameCaseInsensitiveNow(
+                xuid,
+                IdentityProviderType.LOCAL,
+                gameName
+        );
+        if (samePassport.isPresent()) {
+            Identity identity = samePassport.get();
+            if (!identity.gameName().equals(gameName)
+                    || !javaUuid.equals(identity.javaUuid())
+                    || identity.uuidMode() == null
+                    || !uuidMode.equals(identity.uuidMode())) {
+                identity = updateCanonicalIdentityNow(identity.id(), xuid, gameName, javaUuid, uuidMode);
+            }
+            return new ClaimResult(ClaimResult.Status.EXISTING, identity);
+        }
+
+        if (!authoritativeName) {
+            Optional<Identity> global = findCanonicalIdentityByNameNow(
+                    IdentityProviderType.LOCAL,
+                    gameName,
+                    true
+            );
+            if (global.isPresent()) {
+                Identity canonical = global.get();
+                String canonicalName = canonical.gameName();
+                UUID canonicalUuid = canonical.javaUuid();
+                String canonicalUuidMode = canonical.uuidMode();
+                if (canonicalUuid == null || canonicalUuidMode == null || !uuidMode.equals(canonicalUuidMode)) {
+                    canonicalName = gameName;
+                    canonicalUuid = javaUuid;
+                    canonicalUuidMode = uuidMode;
+                }
+                return claimNow(
+                        xuid,
+                        IdentityProviderType.LOCAL,
+                        canonicalName,
+                        canonicalUuid,
+                        canonicalUuidMode,
+                        maxAccounts
+                );
+            }
+        }
+
+        return claimNow(
+                xuid,
+                IdentityProviderType.LOCAL,
+                gameName,
+                javaUuid,
+                uuidMode,
+                maxAccounts
+        );
     }
 
     private ClaimResult claimNow(
