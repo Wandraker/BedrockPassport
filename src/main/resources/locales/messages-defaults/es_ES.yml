@@ -44,6 +44,7 @@ messages:
     reauth-required: 'Esta cuenta Java debe verificarse de nuevo.'
     credential-decrypt-failed: 'No se pudieron descifrar las credenciales de Microsoft guardadas.'
     credential-refresh-required: 'El inicio de sesión de Microsoft debe actualizarse.'
+    microsoft-unavailable: 'Los servicios de Microsoft no respondieron. Tu inicio de sesión guardado se conserva; vuelve a intentarlo en un momento.'
     sign-in-failed-retry: 'El inicio de sesión Microsoft/Java falló. Puedes intentarlo de nuevo.'
     account-save-failed: 'No se pudo guardar esta cuenta Java.'
     reauth-title: '§l§eInicio de sesión de cuenta Java'

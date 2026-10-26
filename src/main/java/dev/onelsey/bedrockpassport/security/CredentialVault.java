@@ -25,12 +25,16 @@ public final class CredentialVault {
     private static final int TAG_BITS = 128;
 
     private final SecureRandom random = new SecureRandom();
-    private final Path keyFile;
+    private final CredentialKeyLocation location;
     private volatile SecretKey key;
 
-    public CredentialVault(Path keyFile) throws IOException {
-        this.keyFile = keyFile;
-        this.key = new SecretKeySpec(loadOrCreateKey(keyFile), "AES");
+    public CredentialVault(CredentialKeyLocation location) throws IOException {
+        this.location = location;
+        this.key = new SecretKeySpec(loadKey(location), "AES");
+    }
+
+    public CredentialKeyLocation location() {
+        return location;
     }
 
     public String encrypt(String plaintext, String xuid, UUID javaUuid) throws GeneralSecurityException {
@@ -66,9 +70,12 @@ public final class CredentialVault {
     }
 
     public synchronized void rotate() throws IOException {
+        if (location.external()) {
+            throw new IllegalStateException("External BedrockPassport credential keys are rotated by the administrator");
+        }
         byte[] nextKey = new byte[KEY_BYTES];
         random.nextBytes(nextKey);
-        writeKeyAtomically(keyFile, nextKey);
+        writeKeyAtomically(location.file(), nextKey);
         key = new SecretKeySpec(nextKey, "AES");
     }
 
@@ -80,6 +87,41 @@ public final class CredentialVault {
 
     private static byte[] aad(String xuid, UUID javaUuid) {
         return ("BedrockPassport\0" + xuid + "\0" + javaUuid).getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static byte[] loadKey(CredentialKeyLocation location) throws IOException {
+        return switch (location.source()) {
+            case ENVIRONMENT -> decodeKey(location.inlineKey(), CredentialKeyLocation.ENVIRONMENT_VARIABLE);
+            case CONFIG_PATH -> readExternalKeyFile(location.file());
+            case DEFAULT_FILE -> loadOrCreateKey(location.file());
+        };
+    }
+
+    private static byte[] readExternalKeyFile(Path keyFile) throws IOException {
+        if (!Files.isRegularFile(keyFile)) {
+            throw new IOException("Credential key file from security.credentials-key-path does not exist: " + keyFile);
+        }
+        String encoded;
+        try {
+            encoded = Files.readString(keyFile, StandardCharsets.US_ASCII);
+        } catch (IOException exception) {
+            throw new IOException("Credential key file from security.credentials-key-path is not readable: " + keyFile, exception);
+        }
+        return decodeKey(encoded, keyFile.toString());
+    }
+
+    private static byte[] decodeKey(String encoded, String origin) throws IOException {
+        byte[] decoded;
+        try {
+            decoded = Base64.getDecoder().decode(encoded.trim());
+        } catch (IllegalArgumentException exception) {
+            throw new IOException("BedrockPassport credential key from " + origin + " is not valid Base64", exception);
+        }
+        if (decoded.length != KEY_BYTES) {
+            throw new IOException("BedrockPassport credential key from " + origin + " must decode to exactly "
+                    + KEY_BYTES + " bytes, got " + decoded.length);
+        }
+        return decoded;
     }
 
     private static byte[] loadOrCreateKey(Path keyFile) throws IOException {

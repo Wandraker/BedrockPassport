@@ -1,9 +1,9 @@
 package dev.onelsey.bedrockpassport.integration;
 
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelHandler;
-import io.netty.channel.ChannelPipeline;
-import io.netty.handler.timeout.ReadTimeoutHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.util.ReferenceCountUtil;
 import org.bukkit.plugin.Plugin;
 
 import java.lang.reflect.Field;
@@ -22,7 +22,12 @@ import java.util.function.Consumer;
 import java.util.logging.Logger;
 
 public final class GeyserPendingSessionBridge {
-    private static final String READ_TIMEOUT_HANDLER = "read-timeout";
+    private static final String BEDROCK_PEER_HANDLER = "bedrock-peer";
+    private static final String LOGIN_HOLD_HANDLER = "bedrockpassport-login-hold";
+    private static final List<String> UPSTREAM_PACKET_HANDLER_CLASSES = List.of(
+            "org.geysermc.geyser.network.bedrock.UpstreamPacketHandler",
+            "org.geysermc.geyser.network.UpstreamPacketHandler"
+    );
     private static final String GEYSER_SESSION_ADAPTER = "org.geysermc.geyser.session.GeyserSessionAdapter";
     private static final String CLIENTBOUND_PLAYER_POSITION =
             "org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.player.ClientboundPlayerPositionPacket";
@@ -50,12 +55,24 @@ public final class GeyserPendingSessionBridge {
     private final Class<?> sessionListenerClass;
     private final Method packetSendingEventGetPacket;
     private final Method packetSendingEventSetCancelled;
-    private final boolean suspendDownstreamReadTimeout;
+    private final Method sessionAuthenticate;
+    private final Method sessionBedrockUsername;
+    private final Method sessionDisconnect;
+    private final Method upstreamGetSession;
+    private final Method bedrockSessionGetPeer;
+    private final Method bedrockSessionGetPacketHandler;
+    private final Method bedrockPeerGetChannel;
+    private final Class<?> packetWrapperClass;
+    private final Method packetWrapperGetPacket;
+    private final Class<?> resourcePackResponseClass;
+    private final Method resourcePackResponseGetStatus;
+    private final Class<?> upstreamPacketHandlerClass;
+    private final Field upstreamResourcePacksFinished;
     private final GeyserFormBridge forms;
     private final Logger logger;
     private final AtomicBoolean movementGuardWarningLogged = new AtomicBoolean(false);
 
-    public GeyserPendingSessionBridge(Plugin geyserPlugin, boolean suspendDownstreamReadTimeout) throws ReflectiveOperationException {
+    public GeyserPendingSessionBridge(Plugin geyserPlugin) throws ReflectiveOperationException {
         Objects.requireNonNull(geyserPlugin, "geyserPlugin");
         ClassLoader loader = geyserPlugin.getClass().getClassLoader();
 
@@ -91,7 +108,27 @@ public final class GeyserPendingSessionBridge {
         this.clientSessionRemoveListener = mcplSessionClass.getMethod("removeListener", sessionListenerClass);
         this.packetSendingEventGetPacket = packetSendingEventClass.getMethod("getPacket");
         this.packetSendingEventSetCancelled = packetSendingEventClass.getMethod("setCancelled", boolean.class);
-        this.suspendDownstreamReadTimeout = suspendDownstreamReadTimeout;
+
+        Class<?> bedrockSessionClass = Class.forName("org.cloudburstmc.protocol.bedrock.BedrockSession", true, loader);
+        Class<?> bedrockPeerClass = Class.forName("org.cloudburstmc.protocol.bedrock.BedrockPeer", true, loader);
+        this.packetWrapperClass = Class.forName("org.cloudburstmc.protocol.bedrock.netty.BedrockPacketWrapper", true, loader);
+        this.resourcePackResponseClass = Class.forName(
+                "org.cloudburstmc.protocol.bedrock.packet.ResourcePackClientResponsePacket",
+                true,
+                loader
+        );
+        this.sessionAuthenticate = sessionClass.getMethod("authenticate", String.class);
+        this.sessionBedrockUsername = sessionClass.getMethod("bedrockUsername");
+        this.sessionDisconnect = sessionClass.getMethod("disconnect", String.class);
+        this.upstreamGetSession = upstreamClass.getMethod("getSession");
+        this.bedrockSessionGetPeer = bedrockSessionClass.getMethod("getPeer");
+        this.bedrockSessionGetPacketHandler = bedrockSessionClass.getMethod("getPacketHandler");
+        this.bedrockPeerGetChannel = bedrockPeerClass.getMethod("getChannel");
+        this.packetWrapperGetPacket = packetWrapperClass.getMethod("getPacket");
+        this.resourcePackResponseGetStatus = resourcePackResponseClass.getMethod("getStatus");
+        this.upstreamPacketHandlerClass = findClass(loader, UPSTREAM_PACKET_HANDLER_CLASSES);
+        this.upstreamResourcePacksFinished = upstreamPacketHandlerClass.getDeclaredField("finishedResourcePackSending");
+        this.upstreamResourcePacksFinished.setAccessible(true);
         this.forms = new GeyserFormBridge(loader, sessionClass);
         this.logger = geyserPlugin.getLogger();
     }
@@ -114,59 +151,121 @@ public final class GeyserPendingSessionBridge {
         }
     }
 
-    public DownstreamReadTimeoutLease suspendDownstreamReadTimeout(SessionHandle handle) {
-        if (!suspendDownstreamReadTimeout) {
-            return DownstreamReadTimeoutLease.NOOP;
-        }
+    /**
+     * Stops Geyser from opening the Java backend connection when the Bedrock client finishes
+     * its resource packs. {@code onReady} then runs in the Geyser session event loop, and the
+     * backend login only starts once {@link #authenticate} is called. Nothing waits on a
+     * Netty thread in between, so the selector cannot stall other connections.
+     */
+    public void holdBackendLogin(SessionHandle handle, Runnable onReady, Consumer<Throwable> onFailure) {
         try {
-            Object downstream = sessionGetDownstream.invoke(handle.session());
-            if (downstream == null) {
-                throw new IllegalStateException("Geyser downstream session is not available");
+            Object upstream = sessionGetUpstream.invoke(handle.session());
+            Object bedrockSession = upstreamGetSession.invoke(upstream);
+            Object peer = bedrockSessionGetPeer.invoke(bedrockSession);
+            if (!(bedrockPeerGetChannel.invoke(peer) instanceof Channel channel)) {
+                throw new IllegalStateException("Bedrock upstream channel is not available");
             }
-            Object clientSession = downstreamGetSession.invoke(downstream);
-            Object channelObject = clientSessionGetChannel.invoke(clientSession);
-            if (!(channelObject instanceof Channel channel)) {
-                throw new IllegalStateException("Geyser downstream channel is not available");
+            if (channel.pipeline().get(BEDROCK_PEER_HANDLER) == null) {
+                throw new IllegalStateException("Bedrock packet dispatcher was not found in the upstream pipeline");
             }
-            if (channel.eventLoop().inEventLoop()) {
-                return suspendDownstreamReadTimeout0(channel);
-            }
-            return channel.eventLoop().submit(() -> suspendDownstreamReadTimeout0(channel)).get(5, TimeUnit.SECONDS);
+            channel.pipeline().addBefore(
+                    BEDROCK_PEER_HANDLER,
+                    LOGIN_HOLD_HANDLER,
+                    new BackendLoginHold(handle, bedrockSession, onReady, onFailure)
+            );
         } catch (Throwable throwable) {
             throw bridgeFailure(throwable);
         }
     }
 
-    private static DownstreamReadTimeoutLease suspendDownstreamReadTimeout0(Channel channel) {
-        ChannelPipeline pipeline = channel.pipeline();
-        String handlerName = READ_TIMEOUT_HANDLER;
-        ChannelHandler handler = pipeline.get(handlerName);
-
-        if (!(handler instanceof ReadTimeoutHandler)) {
-            handler = null;
-            handlerName = null;
-            for (String name : pipeline.names()) {
-                ChannelHandler candidate = pipeline.get(name);
-                if (candidate instanceof ReadTimeoutHandler) {
-                    handler = candidate;
-                    handlerName = name;
-                    break;
+    public void authenticate(SessionHandle handle, Consumer<Throwable> onFailure) {
+        try {
+            execute(handle, () -> {
+                try {
+                    if (isClosed(handle)) {
+                        return;
+                    }
+                    String bedrockUsername = (String) sessionBedrockUsername.invoke(handle.session());
+                    sessionAuthenticate.invoke(handle.session(), bedrockUsername);
+                } catch (Throwable throwable) {
+                    onFailure.accept(bridgeFailure(throwable));
                 }
+            });
+        } catch (Throwable throwable) {
+            onFailure.accept(bridgeFailure(throwable));
+        }
+    }
+
+    public void disconnect(SessionHandle handle, String reason) {
+        try {
+            execute(handle, () -> {
+                try {
+                    if (!isClosed(handle)) {
+                        sessionDisconnect.invoke(handle.session(), reason);
+                    }
+                } catch (Throwable ignored) {
+                }
+            });
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private boolean isResourcePacksCompleted(Object message) throws ReflectiveOperationException {
+        if (!packetWrapperClass.isInstance(message)) {
+            return false;
+        }
+        Object packet = packetWrapperGetPacket.invoke(message);
+        if (!resourcePackResponseClass.isInstance(packet)) {
+            return false;
+        }
+        return resourcePackResponseGetStatus.invoke(packet) instanceof Enum<?> status
+                && "COMPLETED".equals(status.name());
+    }
+
+    private final class BackendLoginHold extends ChannelInboundHandlerAdapter {
+        private final SessionHandle handle;
+        private final Object bedrockSession;
+        private final Runnable onReady;
+        private final Consumer<Throwable> onFailure;
+
+        private BackendLoginHold(SessionHandle handle, Object bedrockSession, Runnable onReady, Consumer<Throwable> onFailure) {
+            this.handle = handle;
+            this.bedrockSession = bedrockSession;
+            this.onReady = onReady;
+            this.onFailure = onFailure;
+        }
+
+        @Override
+        public void channelRead(ChannelHandlerContext ctx, Object msg) {
+            boolean completed;
+            try {
+                completed = isResourcePacksCompleted(msg);
+            } catch (Throwable throwable) {
+                ctx.pipeline().remove(this);
+                ReferenceCountUtil.release(msg);
+                onFailure.accept(bridgeFailure(throwable));
+                return;
+            }
+            if (!completed) {
+                ctx.fireChannelRead(msg);
+                return;
+            }
+
+            ctx.pipeline().remove(this);
+            ReferenceCountUtil.release(msg);
+            try {
+                Object packetHandler = bedrockSessionGetPacketHandler.invoke(bedrockSession);
+                if (!upstreamPacketHandlerClass.isInstance(packetHandler)) {
+                    throw new IllegalStateException("Unexpected Geyser upstream packet handler: "
+                            + (packetHandler == null ? "null" : packetHandler.getClass().getName()));
+                }
+                // Geyser still rejects a duplicate COMPLETED response, as if it had handled this one itself.
+                upstreamResourcePacksFinished.setBoolean(packetHandler, true);
+                execute(handle, onReady);
+            } catch (Throwable throwable) {
+                onFailure.accept(bridgeFailure(throwable));
             }
         }
-
-        if (!(handler instanceof ReadTimeoutHandler readTimeout) || handlerName == null) {
-            return DownstreamReadTimeoutLease.NOOP;
-        }
-
-        long originalMillis = readTimeout.getReaderIdleTimeInMillis();
-        if (originalMillis <= 0L) {
-            return DownstreamReadTimeoutLease.NOOP;
-        }
-
-        ReadTimeoutHandler disabled = new ReadTimeoutHandler(0L, TimeUnit.MILLISECONDS);
-        pipeline.replace(handler, handlerName, disabled);
-        return new DownstreamReadTimeoutLease(channel, handlerName, disabled, originalMillis);
     }
 
     public boolean armInitialMovementGuard(SessionHandle handle) {
@@ -279,6 +378,16 @@ public final class GeyserPendingSessionBridge {
         }
         String detail = throwable == null ? "" : ": " + bridgeFailure(throwable).getMessage();
         logger.warning("BedrockPassport " + message + detail + ". Continuing without the guard.");
+    }
+
+    private static Class<?> findClass(ClassLoader loader, List<String> candidates) throws ClassNotFoundException {
+        for (String name : candidates) {
+            try {
+                return Class.forName(name, true, loader);
+            } catch (ClassNotFoundException ignored) {
+            }
+        }
+        throw new ClassNotFoundException(String.join(" / ", candidates));
     }
 
     private static Field findField(Class<?> type, String name) throws NoSuchFieldException {
@@ -442,55 +551,6 @@ public final class GeyserPendingSessionBridge {
     public record SessionHandle(Object session) {
         public SessionHandle {
             Objects.requireNonNull(session, "session");
-        }
-    }
-
-    public static final class DownstreamReadTimeoutLease implements AutoCloseable {
-        private static final DownstreamReadTimeoutLease NOOP = new DownstreamReadTimeoutLease(null, null, null, 0L);
-
-        private final Channel channel;
-        private final String handlerName;
-        private final ReadTimeoutHandler disabledHandler;
-        private final long originalTimeoutMillis;
-
-        private DownstreamReadTimeoutLease(
-                Channel channel,
-                String handlerName,
-                ReadTimeoutHandler disabledHandler,
-                long originalTimeoutMillis
-        ) {
-            this.channel = channel;
-            this.handlerName = handlerName;
-            this.disabledHandler = disabledHandler;
-            this.originalTimeoutMillis = originalTimeoutMillis;
-        }
-
-        @Override
-        public void close() {
-            if (channel == null) {
-                return;
-            }
-            Runnable restore = () -> {
-                try {
-                    ChannelHandler current = channel.pipeline().get(handlerName);
-                    if (current == disabledHandler) {
-                        channel.pipeline().replace(
-                                disabledHandler,
-                                handlerName,
-                                new ReadTimeoutHandler(originalTimeoutMillis, TimeUnit.MILLISECONDS)
-                        );
-                    }
-                } catch (Throwable ignored) {
-                }
-            };
-            try {
-                if (channel.eventLoop().inEventLoop()) {
-                    restore.run();
-                } else if (!channel.eventLoop().isShuttingDown()) {
-                    channel.eventLoop().execute(restore);
-                }
-            } catch (Throwable ignored) {
-            }
         }
     }
 }

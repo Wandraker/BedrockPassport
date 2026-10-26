@@ -25,6 +25,8 @@ import java.util.logging.Logger;
 
 public final class OnlineIdentityGate implements AutoCloseable {
     private static final String UUID_MODE = "online";
+    private static final int STORED_AUTH_ATTEMPTS = 3;
+    private static final long STORED_AUTH_RETRY_DELAY_MILLIS = 1500L;
 
     private final IdentityRepository repository;
     private final CredentialVault credentialVault;
@@ -205,23 +207,101 @@ public final class OnlineIdentityGate implements AutoCloseable {
                 return;
             }
 
-            authBridge.authenticateStored(flow.held, authChain).whenComplete((account, authError) -> {
-                if (!usable(flow)) {
-                    return;
-                }
-                if (authError != null) {
-                    flow.externalAuth = false;
-                    offerReauthentication(flow, identity, text(flow, "online.credential-refresh-required"));
-                    return;
-                }
+            authenticateStored(flow, identity, authChain, 1);
+        });
+    }
+
+    private void authenticateStored(Flow flow, Identity identity, String authChain, int attempt) {
+        authBridge.authenticateStored(flow.held, authChain).whenComplete((account, authError) -> {
+            if (!usable(flow)) {
+                return;
+            }
+            if (authError == null) {
                 if (!identity.javaUuid().equals(account.javaUuid())) {
                     flow.externalAuth = false;
-                    fail(flow, new IllegalStateException("Stored credential resolved to a different Java UUID"));
+                    logger.warning("BedrockPassport stored credential for " + identity.gameName()
+                            + " resolved to a different Java UUID; re-authentication required.");
+                    offerReauthentication(flow, identity,
+                            text(flow, "online.wrong-account", Map.of("account", identity.gameName())));
                     return;
                 }
                 persistAndConnect(flow, identity, account);
+                return;
+            }
+
+            Throwable cause = unwrap(authError);
+            GeyserOnlineAuthBridge.StoredAuthenticationException failure =
+                    cause instanceof GeyserOnlineAuthBridge.StoredAuthenticationException stored ? stored : null;
+            String nextChain = failure != null && failure.updatedAuthChain() != null
+                    ? failure.updatedAuthChain()
+                    : authChain;
+            boolean rejected = failure != null
+                    && failure.kind() == GeyserOnlineAuthBridge.StoredAuthenticationException.Kind.REJECTED;
+
+            persistRotatedChain(flow, identity, authChain, nextChain).whenComplete((ignored, saveError) -> {
+                if (!usable(flow)) {
+                    return;
+                }
+                if (saveError != null) {
+                    logger.log(Level.WARNING, "BedrockPassport could not save a partially refreshed credential for "
+                            + identity.gameName(), unwrap(saveError));
+                }
+                if (rejected) {
+                    flow.externalAuth = false;
+                    logger.info("BedrockPassport saved Microsoft sign-in for " + identity.gameName()
+                            + " was rejected (" + describe(failure.getCause()) + "); re-authentication required.");
+                    offerReauthentication(flow, identity, text(flow, "online.credential-refresh-required"));
+                    return;
+                }
+                if (attempt < STORED_AUTH_ATTEMPTS) {
+                    logger.warning("BedrockPassport could not refresh Microsoft sign-in for " + identity.gameName()
+                            + " (attempt " + attempt + "/" + STORED_AUTH_ATTEMPTS + "): "
+                            + describe(failure == null ? cause : failure.getCause()) + ". Retrying.");
+                    flow.touch();
+                    try {
+                        watchdog.schedule(() -> {
+                            if (usable(flow)) {
+                                authenticateStored(flow, identity, nextChain, attempt + 1);
+                            }
+                        }, STORED_AUTH_RETRY_DELAY_MILLIS * attempt, TimeUnit.MILLISECONDS);
+                    } catch (RuntimeException exception) {
+                        flow.externalAuth = false;
+                        fail(flow, exception);
+                    }
+                    return;
+                }
+                flow.externalAuth = false;
+                logger.log(Level.WARNING, "BedrockPassport Microsoft services are unavailable for "
+                        + identity.gameName() + "; the saved sign-in was kept.",
+                        failure == null ? cause : failure.getCause());
+                showHome(flow, text(flow, "online.microsoft-unavailable"));
             });
         });
+    }
+
+    private CompletableFuture<Void> persistRotatedChain(
+            Flow flow,
+            Identity identity,
+            String previousChain,
+            String nextChain
+    ) {
+        if (nextChain.equals(previousChain)) {
+            return CompletableFuture.completedFuture(null);
+        }
+        try {
+            String encrypted = credentialVault.encrypt(nextChain, flow.held.xuid(), identity.javaUuid());
+            return repository.saveCredential(identity.id(), flow.held.xuid(), CredentialVault.FORMAT, encrypted);
+        } catch (GeneralSecurityException exception) {
+            return CompletableFuture.failedFuture(exception);
+        }
+    }
+
+    private static String describe(Throwable throwable) {
+        if (throwable == null) {
+            return "unknown error";
+        }
+        String message = throwable.getMessage();
+        return throwable.getClass().getSimpleName() + (message == null || message.isBlank() ? "" : ": " + message);
     }
 
     private void addJavaAccount(Flow flow) {

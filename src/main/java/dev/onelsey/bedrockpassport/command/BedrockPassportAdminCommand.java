@@ -139,6 +139,7 @@ public final class BedrockPassportAdminCommand implements CommandExecutor, TabCo
         sender.sendMessage(ChatUi.accentValue(plugin.message("admin.status.pending"), plugin.pendingAdmissionCount()));
         sender.sendMessage(ChatUi.accentValue(plugin.message("admin.status.provider"), plugin.identityProviderName()));
         sender.sendMessage(ChatUi.accentValue(plugin.message("admin.status.trust"), plugin.identityTrustName()));
+        sender.sendMessage(ChatUi.value(plugin.message("admin.status.credential-key"), plugin.credentialKeySourceName()));
         sender.sendMessage(ChatUi.accentValue(plugin.message("admin.status.threading"), plugin.threadingModelName()));
         sender.sendMessage(ChatUi.accentValue(plugin.message("admin.status.skin"), plugin.skinPolicyName()));
         sender.sendMessage(ChatUi.value(plugin.message("admin.status.skinsrestorer"),

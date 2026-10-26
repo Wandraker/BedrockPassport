@@ -44,6 +44,7 @@ messages:
     reauth-required: 'Цей Java-акаунт потрібно підтвердити знову.'
     credential-decrypt-failed: 'Не вдалося розшифрувати збережені дані входу Microsoft.'
     credential-refresh-required: 'Потрібно оновити вхід Microsoft.'
+    microsoft-unavailable: 'Сервіси Microsoft не відповіли. Збережений вхід не змінено — спробуйте цей акаунт ще раз трохи пізніше.'
     sign-in-failed-retry: 'Вхід Microsoft/Java не вдався. Можна спробувати ще раз.'
     account-save-failed: 'Не вдалося зберегти цей Java-акаунт.'
     reauth-title: '§l§eВхід у Java-акаунт'

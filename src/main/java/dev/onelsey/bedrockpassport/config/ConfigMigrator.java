@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 public final class ConfigMigrator {
-    public static final int CURRENT_VERSION = 4;
+    public static final int CURRENT_VERSION = 5;
 
     private static final Map<String, String> V1_UI_DEFAULTS = Map.ofEntries(
             Map.entry("form.title", "BedrockPassport"),

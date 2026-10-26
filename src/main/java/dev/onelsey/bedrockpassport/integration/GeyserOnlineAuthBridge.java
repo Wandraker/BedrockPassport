@@ -9,8 +9,10 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -19,6 +21,15 @@ import java.util.function.Consumer;
 import java.util.logging.Logger;
 
 public final class GeyserOnlineAuthBridge implements AutoCloseable {
+    private static final Set<String> REJECTED_MSA_ERRORS = Set.of(
+            "invalid_grant",
+            "interaction_required",
+            "consent_required",
+            "login_required",
+            "invalid_client",
+            "unauthorized_client"
+    );
+
     private final Object geyser;
     private final Logger logger;
     private final Method geyserConfig;
@@ -275,13 +286,108 @@ public final class GeyserOnlineAuthBridge implements AutoCloseable {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 ensureActive(held);
-                Object parsed = gsonFromJson.invoke(gson, authChain, jsonObjectClass);
-                Object manager = authManagerFromJson.invoke(null, authClient, parsed);
-                return materializeAccount(manager);
             } catch (Throwable throwable) {
                 throw new CompletionException(bridgeFailure(throwable));
             }
+            Object manager;
+            try {
+                Object parsed = gsonFromJson.invoke(gson, authChain, jsonObjectClass);
+                manager = authManagerFromJson.invoke(null, authClient, parsed);
+            } catch (Throwable throwable) {
+                throw new CompletionException(new StoredAuthenticationException(
+                        StoredAuthenticationException.Kind.REJECTED,
+                        null,
+                        rootInvocationCause(throwable)
+                ));
+            }
+            try {
+                return materializeAccount(manager);
+            } catch (Throwable throwable) {
+                Throwable cause = rootInvocationCause(throwable);
+                throw new CompletionException(new StoredAuthenticationException(
+                        classifyStoredFailure(cause),
+                        serializeIfChanged(manager, authChain),
+                        cause
+                ));
+            }
         });
+    }
+
+    private String serializeIfChanged(Object manager, String original) {
+        try {
+            Object authJson = authManagerToJson.invoke(null, manager);
+            String current = (String) gsonToJson.invoke(gson, authJson);
+            return current == null || current.equals(original) ? null : current;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static StoredAuthenticationException.Kind classifyStoredFailure(Throwable failure) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            if (hasType(current, "net.raphimc.minecraftauth.java.exception.MinecraftProfileNotFoundException")) {
+                return StoredAuthenticationException.Kind.REJECTED;
+            }
+            if (hasType(current, "net.raphimc.minecraftauth.msa.exception.MsaRequestException")) {
+                String error = invokeString(current, "getError");
+                if (error != null && REJECTED_MSA_ERRORS.contains(error.toLowerCase(Locale.ROOT))) {
+                    return StoredAuthenticationException.Kind.REJECTED;
+                }
+            }
+            if (hasType(current, "net.lenni0451.commons.httpclient.exceptions.HttpRequestException")) {
+                int status = httpStatus(current);
+                if (status == 400 || status == 401 || status == 403) {
+                    return StoredAuthenticationException.Kind.REJECTED;
+                }
+                return StoredAuthenticationException.Kind.TRANSIENT;
+            }
+            if (current.getCause() == current) {
+                break;
+            }
+        }
+        return StoredAuthenticationException.Kind.TRANSIENT;
+    }
+
+    private static boolean hasType(Throwable throwable, String className) {
+        for (Class<?> type = throwable.getClass(); type != null; type = type.getSuperclass()) {
+            if (type.getName().equals(className)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String invokeString(Object target, String methodName) {
+        try {
+            Object value = target.getClass().getMethod(methodName).invoke(target);
+            return value instanceof String text ? text : null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static int httpStatus(Throwable throwable) {
+        try {
+            Object response = throwable.getClass().getMethod("getResponse").invoke(throwable);
+            if (response == null) {
+                return -1;
+            }
+            Object status = response.getClass().getMethod("getStatusCode").invoke(response);
+            return status instanceof Integer code ? code : -1;
+        } catch (Throwable ignored) {
+            return -1;
+        }
+    }
+
+    private static Throwable rootInvocationCause(Throwable throwable) {
+        Throwable cause = throwable;
+        while ((cause instanceof InvocationTargetException
+                || cause instanceof CompletionException
+                || cause instanceof java.util.concurrent.ExecutionException)
+                && cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        return cause;
     }
 
     public CompletableFuture<Void> connect(HeldSession held, AuthenticatedJavaAccount account) {
@@ -498,6 +604,30 @@ public final class GeyserOnlineAuthBridge implements AutoCloseable {
             RemoteServer backendRemoteServer,
             String previousGeyserAuthChain
     ) {
+    }
+
+    public static final class StoredAuthenticationException extends RuntimeException {
+        public enum Kind {
+            REJECTED,
+            TRANSIENT
+        }
+
+        private final Kind kind;
+        private final String updatedAuthChain;
+
+        private StoredAuthenticationException(Kind kind, String updatedAuthChain, Throwable cause) {
+            super("Stored Java account authentication failed (" + kind.name().toLowerCase(Locale.ROOT) + ")", cause);
+            this.kind = kind;
+            this.updatedAuthChain = updatedAuthChain;
+        }
+
+        public Kind kind() {
+            return kind;
+        }
+
+        public String updatedAuthChain() {
+            return updatedAuthChain;
+        }
     }
 
     public record AuthenticatedJavaAccount(

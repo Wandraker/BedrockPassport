@@ -44,6 +44,7 @@ messages:
     reauth-required: 'Dieses Java-Konto muss erneut bestätigt werden.'
     credential-decrypt-failed: 'Die gespeicherten Microsoft-Anmeldedaten konnten nicht entschlüsselt werden.'
     credential-refresh-required: 'Die Microsoft-Anmeldung muss aktualisiert werden.'
+    microsoft-unavailable: 'Die Microsoft-Dienste haben nicht geantwortet. Deine gespeicherte Anmeldung bleibt erhalten; versuche es gleich noch einmal.'
     sign-in-failed-retry: 'Die Microsoft/Java-Anmeldung ist fehlgeschlagen. Du kannst es erneut versuchen.'
     account-save-failed: 'Dieses Java-Konto konnte nicht gespeichert werden.'
     reauth-title: '§l§eJava-Konto anmelden'

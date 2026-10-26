@@ -1,4 +1,4 @@
-config-version: 4
+config-version: 5
 
 language:
   config: en_US
@@ -23,6 +23,7 @@ security:
   first-session-wins: true
   case-insensitive-bedrock-names: true
   pending-reservation-seconds: 45
+  credentials-key-path: ''
 
 skins:
   policy: preserve

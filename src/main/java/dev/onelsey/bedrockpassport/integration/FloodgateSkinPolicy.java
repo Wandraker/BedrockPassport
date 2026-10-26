@@ -28,9 +28,12 @@ import java.util.logging.Logger;
 
 @SuppressWarnings("deprecation")
 public final class FloodgateSkinPolicy implements Listener, AutoCloseable {
-    private static final long TRACK_TTL_NANOS = TimeUnit.MINUTES.toNanos(2);
-    private static final int CONFIRMED_SKIN_MAX_ATTEMPTS = 40;
-    private static final long CONFIRMED_SKIN_PERIOD_TICKS = 5L;
+    // Must outlive the confirmed-skin wait below, counted from the handshake rather than the join.
+    private static final long TRACK_TTL_NANOS = TimeUnit.MINUTES.toNanos(5);
+    // GeyserMC's global skin service often takes well over 10 seconds to sign and return a
+    // Bedrock skin, so keep watching for about two minutes (120 checks, once per second).
+    private static final int CONFIRMED_SKIN_MAX_ATTEMPTS = 120;
+    private static final long CONFIRMED_SKIN_PERIOD_TICKS = 20L;
 
     private final Plugin plugin;
     private final Policy policy;
@@ -183,7 +186,9 @@ public final class FloodgateSkinPolicy implements Listener, AutoCloseable {
                         logger.warning(
                                 "BedrockPassport did not observe Floodgate SKIN_UPLOADED for Passport identity "
                                         + managed.javaName()
-                                        + " within the post-join wait window. The Bedrock skin upload did not reach Floodgate."
+                                        + " within the post-join wait window. The Bedrock skin upload did not reach Floodgate;"
+                                        + " GeyserMC's global skin service may be slow or not yet connected (for example right after a restart)."
+                                        + " Reconnecting usually fixes it."
                         );
                     }
                 },

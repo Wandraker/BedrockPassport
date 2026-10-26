@@ -146,7 +146,7 @@ This prevents a saved Passport entry from being presented as proof that the Bedr
 
 JAVA_ACCOUNT entries are created only after Microsoft/Minecraft authentication succeeds. BedrockPassport stores the verified Java username and UUID and uses the refreshed authenticated Java profile for the online-mode backend connection.
 
-The saved authentication chain is encrypted with AES-GCM in `passport.db`; the encryption key is stored separately in `plugins/BedrockPassport/credentials.key`. Back up both together and treat both files as security-sensitive server data.
+The saved authentication chain is encrypted with AES-GCM in `passport.db`. By default the encryption key is stored separately in `plugins/BedrockPassport/credentials.key`; it can also be kept outside the plugin folder (see [Credential key location](#credential-key-location)). Treat both the database and the key as security-sensitive server data.
 
 ### AuthMeReloaded
 
@@ -319,16 +319,11 @@ Missing overrides continue to use the selected built-in locale. Existing customi
 
 The Passport selector can remain open longer than a normal Java login connection would normally allow.
 
-In `LOCAL` mode, BedrockPassport starts Geyser's holding environment and immediately queues the Passport form through Geyser's own form cache. It does not wait for the Bedrock client to send `SetLocalPlayerAsInitializedPacket`; Geyser sends the queued form when the client finishes initialization. `compatibility.holding-world-init-timeout-seconds` therefore does not apply to `LOCAL` mode.
+In both modes BedrockPassport starts Geyser's holding environment and waits for the Bedrock client to finish loading it (`SetLocalPlayerAsInitializedPacket`) before opening the selector. Geyser only flushes queued forms on initialization once a Java login has connected, and no backend connection exists yet at this point. `compatibility.holding-world-init-timeout-seconds` is the fail-closed timeout for this wait; values below 60 seconds are raised to 60.
 
-In `JAVA_ACCOUNT` mode, BedrockPassport still waits for the Geyser holding environment to initialize before opening the verified-account flow, so `compatibility.holding-world-init-timeout-seconds` remains the fail-closed timeout for that provider.
+In both modes the selector runs **before** the Java backend connection is opened. In `LOCAL` mode BedrockPassport holds Geyser's backend login when the Bedrock client finishes its resource packs, shows the selector in the holding environment and only then lets Geyser connect to the backend. Floodgate's handshake handler just picks up the identity that was already chosen.
 
-While identity selection is active, BedrockPassport temporarily suspends the relevant read timeouts used by:
-
-- the Geyser/MCProtocolLib downstream connection
-- the Paper-compatible backend login channel
-
-The original timeout values are restored before normal backend login continues.
+No Netty thread waits for the player while the selector is open. Earlier versions waited inside Floodgate's handshake handler, which blocked a connection thread shared with other players for as long as the selector stayed open and could freeze their connections. Because no backend connection exists during selection, no read timeouts need to be suspended; `compatibility.suspend-geyser-downstream-read-timeout` and `compatibility.suspend-server-login-read-timeout` are no longer used.
 
 BedrockPassport's own inactivity timeout remains in control while the selector is open.
 
@@ -380,6 +375,8 @@ The next time that Java account is selected, the player must complete Microsoft/
 
 Deletes all saved `JAVA_ACCOUNT` authentication state and rotates `credentials.key`.
 
+When the key is external (`BEDROCKPASSPORT_KEY` or `security.credentials-key-path`), BedrockPassport deletes the saved state but does not touch the key. Rotating an external key is the administrator's job: replace it and restart the server.
+
 Passport identities remain in the database. Affected players verify their existing Java accounts once on their next connection, after which normal saved-account reuse continues.
 
 The reset is refused while a JAVA_ACCOUNT selector is active so a concurrent login cannot immediately write a credential back during the reset.
@@ -405,7 +402,7 @@ The database uses SQLite and supports migration from supported older schemas. Ba
 ## Default configuration
 
 ```yaml
-config-version: 4
+config-version: 5
 
 language:
   config: en_US
@@ -430,6 +427,7 @@ security:
   first-session-wins: true
   case-insensitive-bedrock-names: true
   pending-reservation-seconds: 45
+  credentials-key-path: ''
 
 skins:
   policy: preserve
@@ -439,8 +437,8 @@ messages:
 
 compatibility:
   holding-world-init-timeout-seconds: 10
-  suspend-geyser-downstream-read-timeout: true
-  suspend-server-login-read-timeout: true
+  suspend-geyser-downstream-read-timeout: true   # no longer used
+  suspend-server-login-read-timeout: true        # no longer used
   form-transition-delay-millis: 250
 ```
 
@@ -467,7 +465,35 @@ The AES-GCM encryption key is kept separately in:
 plugins/BedrockPassport/credentials.key
 ```
 
-The first account connection requires Microsoft device-code authentication. Later connections can select the saved Java account and reuse a refreshed authenticated chain without repeating the device-code flow unless re-authentication is required.
+The first account connection requires Microsoft device-code authentication. Later connections select the saved Java account and refresh the Microsoft chain automatically, without a device code:
+
+- the saved chain holds the Microsoft refresh token; the Minecraft access token inside it is reused while still valid and refreshed through MSA → Xbox Live → XSTS → Minecraft when it expires;
+- every refreshed chain, including the new refresh token Microsoft returns, is re-encrypted and written back to `passport.db` before the backend connection, in a single SQLite statement;
+- the refreshed profile must resolve to the saved Java UUID, otherwise the player is asked to sign in again;
+- a device code is requested again only when Microsoft rejects the saved sign-in (`invalid_grant`, revoked consent, password change, no longer owns Minecraft), when the saved data cannot be decrypted, or after `/bp reset-login`;
+- network errors, timeouts and Microsoft/Xbox outages never delete the saved sign-in: BedrockPassport retries a few times and then returns the player to the selector with a message, keeping the saved data intact.
+
+A Microsoft refresh token expires if it is unused for about 90 days, so an account that has not joined for that long needs one more device code.
+
+### Credential key location
+
+BedrockPassport looks for the AES-GCM key in this order:
+
+1. the `BEDROCKPASSPORT_KEY` environment variable (base64 of 32 random bytes);
+2. the file at `security.credentials-key-path` (base64 of 32 random bytes; relative paths resolve from the server directory);
+3. `plugins/BedrockPassport/credentials.key`, generated automatically on first start.
+
+An external key is never generated or overwritten by the plugin. If it is missing, unreadable or not exactly 32 bytes, JAVA_ACCOUNT mode does not start and the console explains why; no replacement key is created, so existing saved sign-ins are not silently lost.
+
+Generate an external key with, for example:
+
+```bash
+openssl rand -base64 32
+```
+
+`/bp status` shows which source is in use (env, config path or default) without revealing the key.
+
+Backups: with an external key, back up `passport.db` and the key separately, and do not store them in the same archive. A leaked database without the key cannot be decrypted. Losing the key makes every saved Java sign-in unreadable: players then sign in once more with a device code, and their Passport identities stay intact.
 
 Administrators can invalidate one saved Java sign-in with `/bp reset-login <javaName>`, or invalidate every saved JAVA_ACCOUNT sign-in and rotate the local encryption key with `/bp reset-login --all confirm`. The identity records and verified Java UUIDs are kept, so reset accounts re-authenticate against the same saved identity instead of being recreated.
 

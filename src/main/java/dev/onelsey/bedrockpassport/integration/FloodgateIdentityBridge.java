@@ -3,10 +3,7 @@ package dev.onelsey.bedrockpassport.integration;
 import dev.onelsey.bedrockpassport.access.BedrockAccessPolicy;
 import dev.onelsey.bedrockpassport.data.Identity;
 import dev.onelsey.bedrockpassport.i18n.LocalizedMessages;
-import dev.onelsey.bedrockpassport.gate.GateClosedException;
-import dev.onelsey.bedrockpassport.gate.GateTimeoutException;
 import dev.onelsey.bedrockpassport.gate.IdentityGate;
-import dev.onelsey.bedrockpassport.gate.PassportSessionBusyException;
 import org.geysermc.floodgate.api.InstanceHolder;
 import org.geysermc.floodgate.api.handshake.HandshakeData;
 import org.geysermc.floodgate.api.handshake.HandshakeHandler;
@@ -15,7 +12,6 @@ import org.geysermc.floodgate.util.LinkedPlayer;
 
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletionException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -26,7 +22,6 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
     private final LocalizedMessages localizedMessages;
     private final Logger logger;
     private final HandshakeHandlers handlers;
-    private final ServerLoginReadTimeoutGuard serverTimeoutGuard;
     private final FloodgateSkinPolicy skinPolicy;
     private final UntrustedFloodgateIdentityBridge untrustedIdentityBridge;
     private int registrationId = -1;
@@ -36,7 +31,6 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
             BedrockAccessPolicy accessPolicy,
             LocalizedMessages localizedMessages,
             Logger logger,
-            ServerLoginReadTimeoutGuard serverTimeoutGuard,
             FloodgateSkinPolicy skinPolicy,
             UntrustedFloodgateIdentityBridge untrustedIdentityBridge
     ) {
@@ -44,7 +38,6 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
         this.accessPolicy = accessPolicy;
         this.localizedMessages = localizedMessages;
         this.logger = logger;
-        this.serverTimeoutGuard = serverTimeoutGuard;
         this.skinPolicy = skinPolicy;
         this.untrustedIdentityBridge = untrustedIdentityBridge;
         this.handlers = InstanceHolder.getHandshakeHandlers();
@@ -83,10 +76,16 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
             return;
         }
 
-        ServerLoginReadTimeoutGuard.Lease serverTimeoutLease = serverTimeoutGuard.suspend(data.getChannel());
-        Identity identity = null;
+        // This runs on a Netty thread shared with other connections. The selector already ran in
+        // Geyser's holding world before the backend connection was opened, so only take its result.
+        Identity identity = gate.takePrepared(xuid);
+        if (identity == null) {
+            logger.warning("BedrockPassport received a Floodgate login for XUID " + xuid
+                    + " without a completed Passport selection; refusing it.");
+            data.setDisconnectReason(disconnectReason(localizedMessages.text(locale, "form.internal-error")));
+            return;
+        }
         try {
-            identity = gate.resolve(xuid, floodgateUuid, locale).join();
             if (identity.javaUuid() == null) {
                 throw new IllegalStateException("Resolved BedrockPassport identity has no Java UUID");
             }
@@ -94,31 +93,10 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
             data.setLinkedPlayer(LinkedPlayer.of(identity.gameName(), identity.javaUuid(), floodgateUuid));
             untrustedIdentityBridge.prepare(data.getChannel(), xuid, floodgateUuid, identity.javaUuid(), identity.gameName(), locale);
             skinPolicy.track(xuid, identity.javaUuid(), identity.gameName());
-        } catch (PassportSessionBusyException busy) {
-            releaseIfSelected(xuid, identity);
-            data.setDisconnectReason(disconnectReason(busy.getMessage()));
-        } catch (GateClosedException closed) {
-            releaseIfSelected(xuid, identity);
-            data.setDisconnectReason(disconnectReason(localizedMessages.text(locale, "security.bedrock-connection-closed")));
-        } catch (CompletionException exception) {
-            releaseIfSelected(xuid, identity);
-            Throwable cause = unwrap(exception);
-            if (cause instanceof GateTimeoutException) {
-                data.setDisconnectReason(disconnectReason(localizedMessages.text(locale, "form.timeout")));
-            } else if (cause instanceof GateClosedException) {
-                data.setDisconnectReason(disconnectReason(localizedMessages.text(locale, "security.bedrock-connection-closed")));
-            } else if (cause instanceof PassportSessionBusyException busy) {
-                data.setDisconnectReason(disconnectReason(busy.getMessage()));
-            } else {
-                logger.log(Level.SEVERE, "BedrockPassport failed to resolve identity for XUID " + xuid, cause);
-                data.setDisconnectReason(disconnectReason(localizedMessages.text(locale, "form.internal-error")));
-            }
         } catch (Exception exception) {
             releaseIfSelected(xuid, identity);
-            logger.log(Level.SEVERE, "BedrockPassport failed to resolve identity for XUID " + xuid, exception);
+            logger.log(Level.SEVERE, "BedrockPassport failed to apply identity for XUID " + xuid, exception);
             data.setDisconnectReason(disconnectReason(localizedMessages.text(locale, "form.internal-error")));
-        } finally {
-            serverTimeoutLease.close();
         }
     }
 
@@ -130,14 +108,6 @@ public final class FloodgateIdentityBridge implements HandshakeHandler, AutoClos
         if (identity != null && identity.javaUuid() != null) {
             gate.releaseReservation(xuid, identity.javaUuid());
         }
-    }
-
-    private static Throwable unwrap(Throwable throwable) {
-        Throwable current = throwable;
-        while ((current instanceof CompletionException || current instanceof java.util.concurrent.ExecutionException) && current.getCause() != null) {
-            current = current.getCause();
-        }
-        return current;
     }
 
     @Override

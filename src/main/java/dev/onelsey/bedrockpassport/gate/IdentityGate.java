@@ -35,7 +35,9 @@ public final class IdentityGate implements AutoCloseable {
     private final int maxAccounts;
     private final long inactivityTimeoutNanos;
     private final long formTransitionDelayMillis;
+    private final long holdingInitTimeoutSeconds;
     private final Map<String, GateState> active = new ConcurrentHashMap<>();
+    private final Map<String, Identity> prepared = new ConcurrentHashMap<>();
     private final ScheduledExecutorService watchdog;
 
     public IdentityGate(
@@ -48,7 +50,8 @@ public final class IdentityGate implements AutoCloseable {
             LocalizedMessages localizedMessages,
             int maxAccounts,
             long inactivityTimeoutSeconds,
-            long formTransitionDelayMillis
+            long formTransitionDelayMillis,
+            long holdingInitTimeoutSeconds
     ) {
         this.repository = repository;
         this.geyser = geyser;
@@ -61,6 +64,8 @@ public final class IdentityGate implements AutoCloseable {
         this.accountManagement = new AccountManagementFlow(repository, geyser, state -> reloadHome(state, null));
         this.inactivityTimeoutNanos = TimeUnit.SECONDS.toNanos(inactivityTimeoutSeconds);
         this.formTransitionDelayMillis = Math.max(0L, formTransitionDelayMillis);
+        // Same floor as JAVA_ACCOUNT: slow devices can take a while to load the holding world.
+        this.holdingInitTimeoutSeconds = Math.max(60L, holdingInitTimeoutSeconds);
         this.watchdog = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "BedrockPassport-GateWatchdog");
             thread.setDaemon(true);
@@ -69,49 +74,65 @@ public final class IdentityGate implements AutoCloseable {
         this.watchdog.scheduleAtFixedRate(this::checkTimeouts, 1, 1, TimeUnit.SECONDS);
     }
 
-    public CompletableFuture<Identity> resolve(String xuid, UUID floodgateUuid, String playerLocale) {
+    /**
+     * Runs the selector while the Bedrock player waits in Geyser's holding world, before any Java
+     * backend connection exists. The returned future completes only after the selected identity
+     * has been staged for {@link #takePrepared(String)}.
+     */
+    public CompletableFuture<Identity> open(GeyserPendingSessionBridge.SessionHandle handle, String xuid, String playerLocale) {
         String locale = localizedMessages.resolvePlayerLocale(playerLocale);
         GateMessages flowMessages = GateMessages.localized(localizedMessages, locale);
         if (sessionGuard.isBedrockXuidBusy(xuid)) {
             return CompletableFuture.failedFuture(new PassportSessionBusyException(flowMessages.passportInUse()));
         }
-        GateState candidate = new GateState(xuid, floodgateUuid, geyser.findByXuid(xuid), locale, flowMessages);
+        GateState candidate = new GateState(xuid, floodgateUuid(xuid), handle, locale, flowMessages);
         GateState state = active.putIfAbsent(xuid, candidate);
         if (state != null) {
             return CompletableFuture.failedFuture(new PassportSessionBusyException(flowMessages.passportInUse()));
         }
 
-        candidate.result.whenComplete((identity, error) -> {
+        CompletableFuture<Identity> staged = candidate.result.whenComplete((identity, error) -> {
             active.remove(xuid, candidate);
-            if (candidate.downstreamReadTimeoutLease != null) {
-                candidate.downstreamReadTimeoutLease.close();
-                candidate.downstreamReadTimeoutLease = null;
+            if (error != null) {
+                if (candidate.reservedJavaUuid != null) {
+                    sessionGuard.releaseBedrockReservation(candidate.reservedJavaUuid, candidate.xuid);
+                    candidate.reservedJavaUuid = null;
+                }
+                return;
             }
-            if (error != null && candidate.reservedJavaUuid != null) {
-                sessionGuard.releaseBedrockReservation(candidate.reservedJavaUuid, candidate.xuid);
-                candidate.reservedJavaUuid = null;
+            prepared.put(xuid, identity);
+            if (isClosedQuietly(candidate.handle)) {
+                prepared.remove(xuid, identity);
+                sessionGuard.releaseBedrockReservation(identity.javaUuid(), xuid);
             }
         });
         start(candidate);
-        return candidate.result;
+        return staged;
+    }
+
+    /**
+     * Returns the identity chosen in the holding world, if any. Called from Floodgate's handshake
+     * handler, so it must never wait.
+     */
+    public Identity takePrepared(String xuid) {
+        return xuid == null ? null : prepared.remove(xuid);
     }
 
     private void start(GateState state) {
-        if (state.handle == null) {
-            state.result.completeExceptionally(new IllegalStateException("Pending Geyser session not found for XUID"));
-            return;
-        }
-
         try {
-            state.downstreamReadTimeoutLease = geyser.suspendDownstreamReadTimeout(state.handle);
-            geyser.enterHoldingWorld(state.handle).whenComplete((ready, error) -> {
-                if (error != null) {
-                    state.result.completeExceptionally(error);
-                    return;
-                }
-                state.touch();
-                reloadHome(state, null);
-            });
+            // Geyser only flushes queued forms on client initialization once the Java login has
+            // connected. There is no backend connection yet, so wait for the client to finish
+            // loading the holding world; forms are then sent immediately.
+            geyser.enterHoldingWorld(state.handle)
+                    .thenCompose(ready -> geyser.awaitInitialized(state.handle, holdingInitTimeoutSeconds))
+                    .whenComplete((ready, error) -> {
+                        if (error != null) {
+                            state.result.completeExceptionally(error);
+                            return;
+                        }
+                        state.touch();
+                        reloadHome(state, null);
+                    });
         } catch (Throwable throwable) {
             state.result.completeExceptionally(throwable);
         }
@@ -366,6 +387,7 @@ public final class IdentityGate implements AutoCloseable {
         if (xuid == null || xuid.isBlank()) {
             return;
         }
+        prepared.remove(xuid);
         GateState state = active.get(xuid);
         if (state != null) {
             state.result.completeExceptionally(new GateClosedException());
@@ -430,5 +452,23 @@ public final class IdentityGate implements AutoCloseable {
             state.result.completeExceptionally(new IllegalStateException("BedrockPassport is shutting down"));
         }
         active.clear();
+        prepared.clear();
+    }
+
+    private boolean isClosedQuietly(GeyserPendingSessionBridge.SessionHandle handle) {
+        try {
+            return geyser.isClosed(handle);
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
+
+    // Floodgate's Java UUID for a Bedrock player: the XUID in the low bits.
+    private static UUID floodgateUuid(String xuid) {
+        try {
+            return new UUID(0L, Long.parseLong(xuid));
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 }

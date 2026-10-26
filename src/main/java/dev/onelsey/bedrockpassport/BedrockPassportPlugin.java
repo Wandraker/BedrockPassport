@@ -18,10 +18,10 @@ import dev.onelsey.bedrockpassport.integration.GeyserOnlineAuthBridge;
 import dev.onelsey.bedrockpassport.integration.GeyserOnlineSessionBridge;
 import dev.onelsey.bedrockpassport.integration.GeyserPendingSessionBridge;
 import dev.onelsey.bedrockpassport.integration.GeyserSessionLifecycleBridge;
-import dev.onelsey.bedrockpassport.integration.ServerLoginReadTimeoutGuard;
 import dev.onelsey.bedrockpassport.integration.UntrustedFloodgateIdentityBridge;
 import dev.onelsey.bedrockpassport.name.NamePolicy;
 import dev.onelsey.bedrockpassport.scheduler.PlatformTasks;
+import dev.onelsey.bedrockpassport.security.CredentialKeyLocation;
 import dev.onelsey.bedrockpassport.security.CredentialVault;
 import dev.onelsey.bedrockpassport.security.NameCollisionPolicy;
 import dev.onelsey.bedrockpassport.security.SessionGuard;
@@ -116,18 +116,10 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             boolean firstSessionWins = getConfig().getBoolean("security.first-session-wins", true);
             long inactivityTimeoutSeconds = getConfig().getLong("identity.inactivity-timeout-seconds", 60L);
             long pendingReservationSeconds = getConfig().getLong("security.pending-reservation-seconds", 45L);
-            boolean suspendGeyserDownstreamReadTimeout = getConfig().getBoolean(
-                    "compatibility.suspend-geyser-downstream-read-timeout",
-                    true
-            );
-            boolean suspendServerLoginReadTimeout = getConfig().getBoolean(
-                    "compatibility.suspend-server-login-read-timeout",
-                    true
-            );
 
             NameCollisionPolicy nameCollisionPolicy = new NameCollisionPolicy(caseInsensitiveNames);
             nextRepository = new IdentityRepository(getDataFolder().toPath().resolve("passport.db"), nameCollisionPolicy);
-            GeyserPendingSessionBridge geyserBridge = new GeyserPendingSessionBridge(geyserPlugin, suspendGeyserDownstreamReadTimeout);
+            GeyserPendingSessionBridge geyserBridge = new GeyserPendingSessionBridge(geyserPlugin);
             NamePolicy namePolicy = new NamePolicy(
                     getConfig().getInt("identity.min-name-length", 3),
                     getConfig().getInt("identity.max-name-length", 16),
@@ -168,24 +160,28 @@ public final class BedrockPassportPlugin extends JavaPlugin {
                     localizedMessages,
                     getConfig().getInt("identity.max-accounts-per-xuid", 3),
                     inactivityTimeoutSeconds,
-                    getConfig().getLong("compatibility.form-transition-delay-millis", 250L)
+                    getConfig().getLong("compatibility.form-transition-delay-millis", 250L),
+                    getConfig().getLong("compatibility.holding-world-init-timeout-seconds", 10L)
             );
             nextFloodgateBridge = new FloodgateIdentityBridge(
                     nextGate,
                     nextAccessPolicy,
                     localizedMessages,
                     getLogger(),
-                    new ServerLoginReadTimeoutGuard(suspendServerLoginReadTimeout),
                     nextSkinPolicy,
                     nextUntrustedIdentityBridge
             );
             nextFloodgateBridge.register();
             nextGeyserLifecycleBridge = new GeyserSessionLifecycleBridge(
                     this,
+                    geyserBridge,
                     nextGate,
+                    nextAccessPolicy,
                     nextSessionGuard,
                     nextSkinPolicy,
-                    nextUntrustedIdentityBridge
+                    nextUntrustedIdentityBridge,
+                    localizedMessages,
+                    getLogger()
             );
             nextGeyserLifecycleBridge.register();
 
@@ -261,12 +257,19 @@ public final class BedrockPassportPlugin extends JavaPlugin {
 
             NameCollisionPolicy nameCollisionPolicy = new NameCollisionPolicy(caseInsensitiveNames);
             nextRepository = new IdentityRepository(getDataFolder().toPath().resolve("passport.db"), nameCollisionPolicy);
-            nextCredentialVault = new CredentialVault(getDataFolder().toPath().resolve("credentials.key"));
+            CredentialKeyLocation keyLocation = credentialKeyLocation();
+            try {
+                nextCredentialVault = new CredentialVault(keyLocation);
+            } catch (IOException exception) {
+                throw new IllegalStateException("BedrockPassport credential key from " + keyLocation.describe()
+                        + " is unusable; JAVA_ACCOUNT stays disabled and no replacement key was generated. "
+                        + exception.getMessage(), exception);
+            }
 
             Plugin floodgatePlugin = getServer().getPluginManager().getPlugin("floodgate");
             nextFloodgateOnlineIsolation = new FloodgateOnlineIsolation(floodgatePlugin, getLogger());
 
-            GeyserPendingSessionBridge pendingBridge = new GeyserPendingSessionBridge(geyserPlugin, false);
+            GeyserPendingSessionBridge pendingBridge = new GeyserPendingSessionBridge(geyserPlugin);
             nextOnlineAuthBridge = new GeyserOnlineAuthBridge(geyserPlugin, getLogger());
             nextOnlineGate = new OnlineIdentityGate(
                     nextRepository,
@@ -306,7 +309,7 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             if (nextFloodgateOnlineIsolation.isolated()) {
                 getLogger().info(localizedMessages.text("console.floodgate-isolated"));
             }
-            getLogger().info(localizedMessages.text("console.credential-storage"));
+            getLogger().info(localizedMessages.text("console.credential-storage", Map.of("source", keyLocation.describe())));
             logAccessPolicy(nextAccessPolicy);
         } catch (Throwable exception) {
             if (nextOnlineSessionBridge != null) {
@@ -612,6 +615,18 @@ public final class BedrockPassportPlugin extends JavaPlugin {
         CompletableFuture<LoginResetResult> future = currentRepository
                 .deleteAllCredentials(IdentityProviderType.JAVA_ACCOUNT)
                 .thenApply(count -> {
+                    CredentialKeyLocation keyLocation = activeCredentialKeyLocation();
+                    if (keyLocation.external()) {
+                        getLogger().warning(localizedMessages.text("console.reset-global-external", Map.of(
+                                "count", count,
+                                "source", keyLocation.describe()
+                        )));
+                        return new LoginResetResult(true, true,
+                                localizedMessages.text("runtime.reset-global-external", Map.of(
+                                        "count", count,
+                                        "source", keyLocation.describe()
+                                )));
+                    }
                     try {
                         rotateCredentialKey();
                     } catch (IOException exception) {
@@ -647,6 +662,27 @@ public final class BedrockPassportPlugin extends JavaPlugin {
             return;
         }
         CredentialVault.rotateKeyFile(getDataFolder().toPath().resolve("credentials.key"));
+    }
+
+    private CredentialKeyLocation credentialKeyLocation() {
+        return CredentialKeyLocation.resolve(
+                System.getenv(CredentialKeyLocation.ENVIRONMENT_VARIABLE),
+                getConfig().getString("security.credentials-key-path", ""),
+                getDataFolder().toPath().resolve("credentials.key")
+        );
+    }
+
+    private CredentialKeyLocation activeCredentialKeyLocation() {
+        CredentialVault currentVault = credentialVault;
+        return currentVault != null ? currentVault.location() : credentialKeyLocation();
+    }
+
+    public String credentialKeySourceName() {
+        try {
+            return activeCredentialKeyLocation().describe();
+        } catch (IllegalArgumentException exception) {
+            return "invalid security.credentials-key-path";
+        }
     }
 
     private static Throwable unwrapCompletion(Throwable throwable) {

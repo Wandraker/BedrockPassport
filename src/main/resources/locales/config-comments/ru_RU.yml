@@ -44,6 +44,10 @@ security:
   - Считать разный регистр букв одной и той же сохранённой/активной серверной идентичностью.
   pending-reservation-seconds:
   - Страховочный срок жизни незавершённых защищённых резервов входа.
+  credentials-key-path:
+  - Необязательный путь к ключу шифрования JAVA_ACCOUNT вне папки плагина (base64, 32 байта).
+  - Переменная окружения BEDROCKPASSPORT_KEY важнее этого пути. Пусто — plugins/BedrockPassport/credentials.key.
+  - Внешний ключ никогда не создаётся автоматически. Если он не читается, JAVA_ACCOUNT не запустится.
 skins:
   policy:
   - Политика скинов BedrockPassport: preserve, refresh или off.
@@ -54,10 +58,10 @@ messages:
   - Ключи совпадают с путями встроенных locale-файлов, например messages.overrides.access.denied.
 compatibility:
   holding-world-init-timeout-seconds:
-  - Максимальное ожидание инициализации временной среды Geyser в режиме JAVA_ACCOUNT. В LOCAL используется штатная очередь форм Geyser.
+  - Сколько ждать, пока Bedrock-клиент загрузит временную среду Geyser, прежде чем открыть меню выбора. Значения меньше 60 поднимаются до 60.
   suspend-geyser-downstream-read-timeout:
-  - Временно отключать downstream read timeout Geyser, пока открыто меню выбора.
+  - Больше не используется: меню выбора открывается до подключения к серверу, отключать таймауты не нужно.
   suspend-server-login-read-timeout:
-  - Временно отключать backend login read timeout во время выбора LOCAL-идентичности.
+  - Больше не используется: меню выбора открывается до подключения к серверу, отключать таймауты не нужно.
   form-transition-delay-millis:
   - Небольшая задержка перед повторным открытием Bedrock-форм после закрытия или возврата назад.
